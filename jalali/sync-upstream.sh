@@ -58,6 +58,12 @@ if ! git merge --no-ff --no-edit "$UPSTREAM"; then
     esac
   done
 
+  # PersianTask does not use Dependabot, since dependency updates arrive with
+  # this merge, so its configuration stays deleted.
+  if git ls-files --unmerged -- .github/dependabot.yml | grep -q .; then
+    git rm --quiet .github/dependabot.yml
+  fi
+
   conflicts=$(git diff --name-only --diff-filter=U)
   if [ -n "$conflicts" ]; then
     echo "Merge conflicts:" >&2
