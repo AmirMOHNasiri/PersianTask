@@ -40,7 +40,7 @@ PersianTask has its own pacman repository, with prebuilt and signed packages.
 3. Install:
 
    ```
-   sudo pacman -Sy persiantask
+   sudo pacman -Syu persiantask
    ```
 
 The package replaces the official `task` package, if it is installed. Updates arrive with `pacman -Syu` (or `yay -Syu`), like any other package.
