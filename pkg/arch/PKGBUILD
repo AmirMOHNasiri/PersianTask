@@ -1,3 +1,5 @@
+# Maintainer: AmirMOHNasiri <deadlyphoenix975 at gmail dot com>
+
 pkgname=persiantask-git
 pkgver=r12062.b1da40b45
 pkgrel=1
@@ -7,6 +9,7 @@ url="https://github.com/AmirMOHNasiri/PersianTask"
 license=('MIT')
 depends=('gcc-libs' 'glibc' 'util-linux-libs')
 makedepends=('git' 'cmake' 'rust')
+checkdepends=('python')
 provides=('task')
 conflicts=('task')
 options=('!lto')
@@ -29,6 +32,10 @@ prepare() {
 build() {
   cmake -S "$pkgname" -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
   cmake --build build
+}
+
+check() {
+  python3 "$pkgname/jalali/test_jalali.py" build/src/task
 }
 
 package() {
