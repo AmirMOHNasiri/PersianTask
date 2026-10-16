@@ -411,25 +411,9 @@ std::string CmdCalendar::renderMonths(int firstMonth, int firstYear, const Datet
   view.width(Context::getContext().getWidth());
   view.withColor(Context::getContext().color());
   for (int i = 0; i < (monthsPerLine * 8); i += 8) {
-    if (weekStart == 1) {
-      view.add("", false);
-      view.add(utf8_substr(Datetime::dayName(1), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(2), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(3), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(4), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(5), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(6), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(0), 0, 2), false);
-    } else {
-      view.add("", false);
-      view.add(utf8_substr(Datetime::dayName(0), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(1), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(2), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(3), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(4), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(5), 0, 2), false);
-      view.add(utf8_substr(Datetime::dayName(6), 0, 2), false);
-    }
+    view.add("", false);
+    for (int d = 0; d < 7; ++d)
+      view.add(utf8_substr(Datetime::dayName((weekStart + d) % 7), 0, 2), false);
   }
 
   // At most, we need 6 rows.
@@ -485,19 +469,17 @@ std::string CmdCalendar::renderMonths(int firstMonth, int firstYear, const Datet
                  format((woy < 10 ? "   {1}" : "  {1}"), woy), color_weeknumber);
 
       // Calculate column id.
-      auto thisCol = dow +                       // 0 = Sunday
-                     (weekStart == 1 ? 0 : 1) +  // Offset for weekStart
-                     (8 * mpl);                  // Columns in 1 month
-
-      if (thisCol == (8 * mpl)) thisCol += 7;
+      auto thisCol = (8 * mpl) +                       // Columns in 1 month
+                     1 +                               // Week number column
+                     (dow - weekStart + 7) % 7;        // Offset for weekStart
 
       view.set(row, thisCol, d);
 
       if (Context::getContext().color()) {
         Color cellColor;
 
-        // colorize weekends
-        if (dow == 0 || dow == 6) cellColor.blend(color_weekend);
+        // colorize weekends (Thursday and Friday)
+        if (dow == 4 || dow == 5) cellColor.blend(color_weekend);
 
         // colorize holidays
         if (config.get("calendar.holidays") != "none") {
@@ -577,8 +559,7 @@ std::string CmdCalendar::renderMonths(int firstMonth, int firstYear, const Datet
       }
 
       // Check for end of week, and...
-      int eow = 6;
-      if (weekStart == 1) eow = 0;
+      int eow = (weekStart + 6) % 7;
       if (dow == eow && d < daysInMonth[mpl]) row++;
     }
   }

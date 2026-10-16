@@ -1,0 +1,75 @@
+name: CMake
+
+on: [push, pull_request]
+
+env:
+  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners
+        include:
+          - name: "Ubuntu 22.04"
+            runner: ubuntu-22.04
+          - name: "Ubuntu 24.04"
+            runner: ubuntu-24.04
+          - name: "macOS 15"
+            runner: macos-15
+          - name: "macOS 14"
+            runner: macos-14
+          - name: "Windows"
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Configure in-source build and tests
+      - name: Configure CMake
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
+          else
+            cmake -S . -B . -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
+          fi
+
+      - name: Build project
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cmake --build build
+          else
+            cmake --build .
+          fi
+
+      - name: Test project
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cd build && ctest --output-on-failure
+          else
+            make test
+          fi
+
+  integration-test:
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - name: "Timewarrior [stable]"
+            container: "timew-libshared-stable"
+          - name: "Timewarrior [develop]"
+            container: "timew-libshared-develop"
+          - name: "Taskwarrior [stable]"
+            container: "task-libshared-stable"
+          - name: "Taskwarrior [develop]"
+            container: "task-libshared-develop"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: "Test on ${{ matrix.name }}"
+        run: docker compose up ${{ matrix.container }}

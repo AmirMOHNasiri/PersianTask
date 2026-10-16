@@ -1,0 +1,15 @@
+# Please do not add your editor's dot files here (i.e. no `.vscode` here).
+# Put them to .git/info/exclude or ~/.config/git/ignore if you want to do it globally.
+# See https://git-scm.com/docs/gitignore for more details on these files.
+
+.cmake/
+CMakeFiles/
+cmake-build-debug/
+CMakeCache.txt
+Makefile
+cmake.h
+cmake_install.cmake
+install_manifest.txt
+lex
+libshared.a
+*.cbp

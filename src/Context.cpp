@@ -151,7 +151,7 @@ std::string configurationDefaults =
     "dateformat.annotation=                         # Preferred display date format for "
     "annotations\n"
     "date.iso=1                                     # Enable ISO date support\n"
-    "weekstart=sunday                               # Sunday or Monday only\n"
+    "weekstart=saturday                             # First day of the week\n"
     "displayweeknumber=1                            # Show week numbers on calendar\n"
     "due=7                                          # Task is considered due in 7 days\n"
     "\n"
@@ -1085,9 +1085,8 @@ void Context::staticInitialization() {
   Lexer::dateFormat = Variant::dateFormat = config.get("dateformat");
 
   auto weekStart = Datetime::dayOfWeek(config.get("weekstart"));
-  if (weekStart != 0 && weekStart != 1)
-    throw std::string(
-        "The 'weekstart' configuration variable may only contain 'Sunday' or 'Monday'.");
+  if (weekStart == -1)
+    throw std::string("The 'weekstart' configuration variable must contain a day name.");
   Datetime::weekstart = weekStart;
   Datetime::isoEnabled = config.getBoolean("date.iso");
   Datetime::standaloneDateEnabled = false;

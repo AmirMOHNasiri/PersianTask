@@ -228,12 +228,13 @@ std::optional<Datetime> getNextRecurrence(Datetime& current, std::string& period
   }
 
   else if (period == "weekdays") {
+    // Saturday to Wednesday; Thursday and Friday are the weekend.
     auto dow = current.dayOfWeek();
     int days;
 
-    if (dow == 5)
+    if (dow == 3)
       days = 3;
-    else if (dow == 6)
+    else if (dow == 4)
       days = 2;
     else
       days = 1;
@@ -337,15 +338,19 @@ std::optional<Datetime> getNextRecurrence(Datetime& current, std::string& period
   else if (period == "biannual" || period == "biyearly" || period == "P2Y") {
     y += 2;
 
+    // If the due date just happens to be Esfand 30th in a leap year, then
+    // simply incrementing y may create an invalid date.
+    while (!Datetime::valid(y, m, d)) --d;
+
     return Datetime(y, m, d, ho, mi, se);
   }
 
   else if (period == "annual" || period == "yearly" || period == "P1Y") {
     y += 1;
 
-    // If the due data just happens to be 2/29 in a leap year, then simply
-    // incrementing y is going to create an invalid date.
-    if (m == 2 && d == 29) d = 28;
+    // If the due date just happens to be Esfand 30th in a leap year, then
+    // simply incrementing y is going to create an invalid date.
+    while (!Datetime::valid(y, m, d)) --d;
 
     return Datetime(y, m, d, ho, mi, se);
   }
