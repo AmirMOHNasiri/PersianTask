@@ -29,15 +29,16 @@ fi
 # The database only lists this package, which replaces any previous version.
 repo-add "${sign[@]}" persiantask.db.tar.gz "$pkg"
 
-# repo-add makes persiantask.db and persiantask.files symlinks, but release
-# assets must be regular files.
-for name in persiantask.db persiantask.files; do
-  rm "$name"
-  cp "$name.tar.gz" "$name"
-  files+=("$name")
-  if [ -f "$name.tar.gz.sig" ]; then
-    cp "$name.tar.gz.sig" "$name.sig"
-    files+=("$name.sig")
+# repo-add makes persiantask.db, persiantask.files and their signatures
+# symlinks, but release assets must be regular files.
+for file in persiantask.db persiantask.db.sig persiantask.files persiantask.files.sig; do
+  if [ -L "$file" ]; then
+    target=$(readlink -f "$file")
+    rm "$file"
+    cp "$target" "$file"
+  fi
+  if [ -f "$file" ]; then
+    files+=("$file")
   fi
 done
 
