@@ -1,0 +1,37 @@
+pkgname=persiantask-git
+pkgver=r12062.b1da40b45
+pkgrel=1
+pkgdesc="Taskwarrior with the Jalali (Shamsi) calendar"
+arch=('x86_64')
+url="https://github.com/AmirMOHNasiri/PersianTask"
+license=('MIT')
+depends=('gcc-libs' 'glibc' 'util-linux-libs')
+makedepends=('git' 'cmake' 'rust')
+provides=('task')
+conflicts=('task')
+options=('!lto')
+source=("$pkgname::git+https://github.com/AmirMOHNasiri/PersianTask.git#branch=main"
+        "corrosion::git+https://github.com/corrosion-rs/corrosion.git")
+sha256sums=('SKIP' 'SKIP')
+
+pkgver() {
+  cd "$pkgname"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd "$pkgname"
+  git submodule init
+  git config submodule.src/taskchampion-cpp/corrosion.url "$srcdir/corrosion"
+  git -c protocol.file.allow=always submodule update
+}
+
+build() {
+  cmake -S "$pkgname" -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 "$pkgname/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
