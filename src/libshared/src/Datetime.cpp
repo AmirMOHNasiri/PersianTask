@@ -778,6 +778,13 @@ bool Datetime::parse_formatted (Pig& pig, const std::string& format)
     return false;
   }
 
+  // A zero month or day is never valid.
+  if (month == 0 || day == 0)
+  {
+    pig.restoreTo (checkpoint);
+    return false;
+  }
+
   // Missing values are filled in from the current date.
   if (year == -1)
   {

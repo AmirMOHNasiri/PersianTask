@@ -1,0 +1,109 @@
+# Merges upstream Taskwarrior into PersianTask once a week.
+#
+# The merge is built and checked with the Jalali calendar tests.  If all is
+# well, it is offered as a pull request from the 'upstream-sync' branch, to be
+# merged with a merge commit (not squash or rebase, which would lose track of
+# what was merged from upstream).  If anything fails, an issue is opened
+# instead, and nothing reaches main.
+
+name: Upstream sync
+
+on:
+  schedule:
+    - cron: "17 3 * * 6"  # Saturdays, 03:17 UTC.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  BRANCH: upstream-sync
+  ISSUE_TITLE: Upstream sync failed
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        id: fetch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/GothenburgBitFactory/taskwarrior.git
+          git fetch --no-tags upstream develop
+          if git merge-base --is-ancestor upstream/develop HEAD; then
+            echo "Already up to date with upstream."
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+          else
+            git log --oneline HEAD..upstream/develop
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream
+        if: steps.fetch.outputs.pending == 'true'
+        run: |
+          git checkout -b "$BRANCH"
+          bash jalali/sync-upstream.sh upstream/develop
+          git submodule update --init --recursive
+
+      - name: Install dependencies
+        if: steps.fetch.outputs.pending == 'true'
+        run: sudo apt-get update && sudo apt-get install -y uuid-dev
+
+      - name: Build and test
+        if: steps.fetch.outputs.pending == 'true'
+        shell: bash  # Implies pipefail, so that a failure is not hidden by tee.
+        run: bash jalali/build-and-test.sh | tee test-results.txt
+
+      - name: Open pull request
+        if: steps.fetch.outputs.pending == 'true'
+        run: |
+          git push --force origin "$BRANCH"
+
+          {
+            echo "Merges the latest upstream Taskwarrior into PersianTask."
+            echo
+            echo "The merge was built, and passed the Jalali calendar tests:"
+            echo
+            echo '```'
+            grep -v '^ok' test-results.txt || true
+            echo '```'
+            echo
+            echo "Upstream commits:"
+            echo
+            git log --format='- %h %s' main..upstream/develop | head -100
+            echo
+            echo "**Merge this with \"Create a merge commit\"**, not squash or rebase."
+          } > pr-body.md
+
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            gh pr edit "$BRANCH" --body-file pr-body.md
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "Merge upstream Taskwarrior ($(date -u +%F))" \
+              --body-file pr-body.md
+          fi
+
+      - name: Report failure
+        if: failure()
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          message="Merging upstream Taskwarrior failed, so nothing was merged into main. This happens when upstream changed code that PersianTask also changed, or when the merge breaks the build or the Jalali calendar tests. See the log: $run_url"
+
+          issue=$(gh issue list --state open --search "\"$ISSUE_TITLE\" in:title" --json number --jq '.[0].number')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$message"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body "$message"
+          fi
