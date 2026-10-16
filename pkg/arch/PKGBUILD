@@ -11,8 +11,8 @@ depends=('gcc-libs' 'glibc' 'util-linux-libs')
 makedepends=('git' 'cmake' 'rust')
 checkdepends=('python')
 provides=('task')
-conflicts=('task')
-options=('!lto')
+conflicts=('task' 'persiantask')
+options=('!lto' '!debug')
 source=("$pkgname::git+https://github.com/AmirMOHNasiri/PersianTask.git#branch=main"
         "corrosion::git+https://github.com/corrosion-rs/corrosion.git")
 sha256sums=('SKIP' 'SKIP')
@@ -31,7 +31,7 @@ prepare() {
 
 build() {
   cmake -S "$pkgname" -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
-  cmake --build build
+  cmake --build build --target task_executable --parallel "$(nproc)"
 }
 
 check() {

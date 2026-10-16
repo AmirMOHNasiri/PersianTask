@@ -20,13 +20,40 @@ $ task calendar
 
 ### Arch Linux (and Manjaro, EndeavourOS, ...)
 
+PersianTask has its own pacman repository, with prebuilt and signed packages.
+
+1. Trust the signing key:
+
+   ```
+   curl -O https://raw.githubusercontent.com/AmirMOHNasiri/PersianTask/main/pkg/arch/persiantask.asc
+   sudo pacman-key --add persiantask.asc
+   sudo pacman-key --lsign-key DCFAB320BDF35972810853F3A52EE6D3F3739E31
+   ```
+
+2. Add the repository to the end of `/etc/pacman.conf`:
+
+   ```
+   [persiantask]
+   Server = https://github.com/AmirMOHNasiri/PersianTask/releases/download/repo
+   ```
+
+3. Install:
+
+   ```
+   sudo pacman -Sy persiantask
+   ```
+
+The package replaces the official `task` package, if it is installed. Updates arrive with `pacman -Syu` (or `yay -Syu`), like any other package.
+
+#### Building from source instead
+
 ```
 mkdir persiantask && cd persiantask
 curl -O https://raw.githubusercontent.com/AmirMOHNasiri/PersianTask/main/pkg/arch/PKGBUILD
 makepkg -si
 ```
 
-The package replaces the official `task` package, if it is installed. The build runs the Jalali calendar tests, and stops if any fails. To update, run `makepkg -si` again in the same directory.
+This builds the `persiantask-git` package from the latest commit, which takes several minutes. The build runs the Jalali calendar tests, and stops if any fails. To update, run `makepkg -si` again in the same directory.
 
 ### Other Linux distributions
 
@@ -82,7 +109,7 @@ The display format is set with `dateformat`. For example, `task config dateforma
 - `src/commands/CmdCalendar.cpp`, `src/recur.cpp`, `src/Context.cpp`: the calendar view, recurrence, and weeks starting on Saturday.
 - `jalali/`: the Jalali calendar tests, and the script that merges upstream updates.
 - `.github/workflows/jalali-*.yml`: runs the tests, and merges upstream every week.
-- `pkg/arch/PKGBUILD`: the Arch Linux package.
+- `pkg/arch/PKGBUILD`: the Arch Linux package, and `pkg/arch/persiantask.asc`, the key that signs the prebuilt packages.
 
 To run the tests: `bash jalali/build-and-test.sh`
 

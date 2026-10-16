@@ -1,0 +1,46 @@
+# Builds the prebuilt 'persiantask' Arch Linux package on every change to main,
+# and publishes it in the pacman repository hosted on the 'repo' release.
+#
+# The package build runs the Jalali calendar tests, so a package is only
+# published if they pass.  It is signed if the GPG_PRIVATE_KEY secret is set.
+
+name: Package
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: package
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build tools
+        run: pacman -Syu --noconfirm git cmake rust python github-cli
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # The package version counts the commits.
+
+      - name: Build package
+        run: |
+          # makepkg refuses to run as root.
+          useradd --create-home builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          su builder -c "git config --global --add safe.directory '$GITHUB_WORKSPACE' && bash '$GITHUB_WORKSPACE/jalali/build-package.sh'"
+
+      - name: Publish repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: bash jalali/publish-repo.sh
