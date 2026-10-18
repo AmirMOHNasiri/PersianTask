@@ -102,7 +102,9 @@ class Template {
 };
 
 // Minutes since midnight of HH:MM, 'wake' or 'sleep', or -1 if invalid.
+// Persian and Arabic-Indic digits are accepted.
 int parseTime(const std::string&);
+std::string asciiDigits(const std::string&);
 std::string formatTime(int);
 
 // Day of the week (0 = Sunday) of a Finglish day name, or -1.

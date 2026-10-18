@@ -54,6 +54,60 @@ const std::vector<HelpEntry>& helpEntries() {
        "after editing the template.",
        {"task schedule check"}},
 
+      {"swap", "<slot> <slot> [next | prev | week:<date>]",
+       "Swaps the times of two slots, for one week",
+       "Each slot takes the other's day and time, this week only (or the week given).\n"
+       "Fixed and protected slots never move.  'task schedule reset' undoes it for\n"
+       "both slots.",
+       {"task schedule swap sat-ds mon-arch", "task schedule swap 3 16",
+        "task schedule swap sat-ds mon-arch next"}},
+
+      {"move", "<slot> <day | date> <HH:MM> [next | prev | week:<date>]",
+       "Moves a slot to another day or time, for one week",
+       "The slot keeps its length.  It must stay within the day (schedule.wake to\n"
+       "schedule.sleep) and not overlap another slot or an event: to exchange two\n"
+       "slots, use swap.  A date instead of a day name also chooses the week.  Fixed\n"
+       "and protected slots never move.",
+       {"task schedule move sat-ds doshanbe 14:00", "task schedule move 3 1405-08-05 09:00"}},
+
+      {"skip", "<slot> [next | prev | week:<date>]",
+       "Skips a slot's own work, for one week",
+       "The slot no longer takes work from its own category: it goes down its fallback\n"
+       "chain instead, or stays free if the chain ends in rest.",
+       {"task schedule skip sat-research", "task schedule skip wed-floating next"}},
+
+      {"assign", "<slot> <task id | filter> [next | prev | week:<date>]",
+       "Pins a task, or a filter, to a slot, for one week",
+       "The slot works on that task, or on the most urgent task matching the filter,\n"
+       "instead of its own category.  Assigning replaces a skip, and the other way round.",
+       {"task schedule assign wed-floating 12",
+        "task schedule assign fri-buffer project:os +homework"}},
+
+      {"reset", "<slot | week> [next | prev | week:<date>]",
+       "Undoes this week's changes to a slot, or to the whole week",
+       "The slot goes back to its place and work in the template.  If it was swapped,\n"
+       "the other slot goes back too.",
+       {"task schedule reset sat-ds", "task schedule reset week"}},
+
+      {"event", "add <title> <date> <HH:MM-HH:MM> | delete <id> | list",
+       "One-time appointments",
+       "An event is like a fixed slot on one day: it shows in the schedule, and slots\n"
+       "cannot be moved over it.  Adding one over a slot is allowed, and the overlap\n"
+       "is reported.  Events are numbered e1, e2, and so on.",
+       {"task schedule event add Dentist 1405-08-03 17:00-18:00",
+        "task schedule event delete e1", "task schedule event list"}},
+
+      {"undo", "",
+       "Undoes the last change to the schedule",
+       "Undoes the last swap, move, skip, assign, reset or event change.  It can be\n"
+       "repeated.  Note that 'task undo' undoes changes to tasks, not to the schedule.",
+       {"task schedule undo"}},
+
+      {"log", "",
+       "Lists the changes to the schedule, most recent first",
+       "The changes that 'task schedule undo' can undo, with when they were made.",
+       {"task schedule log"}},
+
       {"help", "[<command> | template]",
        "This help, or help on one command or on the template format",
        "Without an argument, shows a quick reference.  With a command name, shows its\n"

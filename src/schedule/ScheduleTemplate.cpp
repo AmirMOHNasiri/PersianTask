@@ -146,7 +146,26 @@ std::string kindName(Kind kind) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-int parseTime(const std::string& input) {
+std::string asciiDigits(const std::string& input) {
+  std::string output;
+  for (size_t i = 0; i < input.length(); ++i) {
+    auto lead = static_cast<unsigned char>(input[i]);
+    auto trail = i + 1 < input.length() ? static_cast<unsigned char>(input[i + 1]) : 0;
+    if (lead == 0xDB && trail >= 0xB0 && trail <= 0xB9) {  // Persian
+      output += static_cast<char>('0' + trail - 0xB0);
+      ++i;
+    } else if (lead == 0xD9 && trail >= 0xA0 && trail <= 0xA9) {  // Arabic-Indic
+      output += static_cast<char>('0' + trail - 0xA0);
+      ++i;
+    } else
+      output += input[i];
+  }
+  return output;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+int parseTime(const std::string& raw) {
+  auto input = asciiDigits(raw);
   if (input == "wake") return Template::wake();
   if (input == "sleep") return Template::sleep();
 

@@ -5,6 +5,8 @@ PersianTask can plan your week. You describe a typical week once, as a template 
 - [Quick start](#quick-start)
 - [How a slot gets its task](#how-a-slot-gets-its-task)
 - [Commands](#commands)
+- [Changing one week](#changing-one-week)
+- [Where the schedule is stored](#where-the-schedule-is-stored)
 - [The template file](#the-template-file)
 - [Settings](#settings)
 - [A worked example](#a-worked-example)
@@ -55,7 +57,7 @@ soon   -   due.after:now due.before:now+7d
 
 `task schedule week` fills slots with tasks due in the coming seven days, and `task schedule week next` with tasks due in the seven days after next Shanbe. Urgency, which ranks the tasks, is computed as of the same time.
 
-Viewing the schedule never changes anything: `task schedule`, `task schedule week`, `task schedule check` and plain `task` only read your tasks and the template.
+Viewing the schedule never changes anything: `task schedule`, `task schedule week`, `task schedule check` and plain `task` only read your tasks, the template and the week's changes.
 
 ## Commands
 
@@ -86,6 +88,80 @@ task schedule week 1405-08-10
 A whole week of slots and tasks: this week, the next or previous one, or the week containing a date. Weeks start on the `weekstart` setting, Shanbe by default, and the header gives the week number and its first and last days.
 
 Each slot is numbered within the week. The number can be used in place of the slot's id.
+
+### task schedule swap
+
+```
+task schedule swap sat-ds mon-arch
+task schedule swap 3 16
+task schedule swap sat-ds mon-arch next
+```
+
+Swaps the times of two slots, for one week: each slot takes the other's day, start and end. Since they exchange places, a swap never creates an overlap. Fixed and protected slots never move.
+
+### task schedule move
+
+```
+task schedule move sat-ds doshanbe 14:00
+task schedule move 3 1405-08-05 09:00
+```
+
+Moves a slot to another day and start time, for one week. The slot keeps its length. The day is a day name in the week, or a date, which then also chooses the week. A move is refused if the slot would end up outside the day (`schedule.wake` to `schedule.sleep`), or over another slot or an event: to exchange two slots, use `swap`. Fixed and protected slots never move.
+
+### task schedule skip
+
+```
+task schedule skip sat-research
+task schedule skip wed-floating next
+```
+
+Skips a slot's own work, for one week: it goes down its fallback chain instead, or stays free if the chain ends in `rest`.
+
+### task schedule assign
+
+```
+task schedule assign wed-floating 12
+task schedule assign fri-buffer project:os +homework
+```
+
+Pins work to a slot, for one week: a task, by its ID or UUID, or a filter, whose most urgent task the slot then takes. A pinned task comes before any other in that slot. Fixed and rest slots never take work.
+
+### task schedule reset
+
+```
+task schedule reset sat-ds
+task schedule reset week
+```
+
+Undoes this week's changes to one slot, or to the whole week. Resetting one slot of a swap resets the other one too. A reset is refused if the slot would land on another slot that was moved into its place: reset or move that one first.
+
+### task schedule event
+
+```
+task schedule event add Dentist 1405-08-03 17:00-18:00
+task schedule event list
+task schedule event delete e1
+```
+
+One-time appointments. An event is like a fixed slot on one day: it shows in the schedule, and no slot can be moved over it. Adding an event over a slot is allowed, and the slots it covers are listed, so that you can skip or move them. Events are numbered `e1`, `e2`, and so on.
+
+### task schedule undo
+
+```
+task schedule undo
+```
+
+Undoes the last change to the schedule: a swap, move, skip, assign, reset or event. It can be repeated, up to the last 100 changes.
+
+`task undo` undoes changes to tasks, never to the schedule, and `task schedule undo` never changes tasks.
+
+### task schedule log
+
+```
+task schedule log
+```
+
+Lists the changes to the schedule, most recent first, with when they were made. The first one is what `task schedule undo` undoes next.
 
 ### task schedule init
 
@@ -120,6 +196,50 @@ task schedule help template
 ```
 
 A quick reference, help on one command, or a summary of the template format.
+
+## Changing one week
+
+`swap`, `move`, `skip`, `assign` and `reset` change one week only, never the template. They change the current week, unless the command ends with a week:
+
+| Ending | Week |
+|---|---|
+| (nothing) | This week |
+| `next` | Next week |
+| `prev` | Last week |
+| `week:<date>` | The week containing the date, as in `week:1405-08-10` |
+
+A slot is named by its id, such as `sat-ds`, or by its number in `task schedule week`. The numbers follow the template, so they do not change when slots are moved. Events are `e1`, `e2`, and so on.
+
+### The order of layers
+
+The week you see is built in layers, each of which can change the one before:
+
+1. **The template**: the slots and their categories.
+2. **Modes**, such as exam season. *(Coming in a later version.)*
+3. **This week's changes**: move, swap, skip and assign. A change made for a week always wins over the template and over modes.
+4. **Borrowing**, which gives a task extra time from other slots. *(Coming in a later version.)*
+
+`skip` and `assign` replace each other on a slot: the last one made counts. A moved slot keeps what it was assigned.
+
+If the template changes so that a change no longer applies (its slot was removed, or its assigned task is done or deleted), the change is ignored, and `task schedule week` and `task schedule check` say so in a note.
+
+## Where the schedule is stored
+
+The schedule is not part of the Taskwarrior database. It is kept in files in the data directory, `~/.task`:
+
+| File | Contents |
+|---|---|
+| `schedule` | The template, which you edit. |
+| `schedule.state.json` | Each week's changes, and the events. |
+| `schedule.undo.json` | The last 100 changes, for `task schedule undo` and `task schedule log`. |
+| `schedule.lock` | A lock, so that `task` commands running at the same time cannot lose each other's changes. |
+
+This has two consequences:
+
+- **`task undo` does not undo schedule changes.** Use `task schedule undo`.
+- **The schedule does not sync with your tasks.** `task sync` copies tasks only, so other devices and other Taskwarrior clients never see the schedule. Copy these files yourself to use the same schedule elsewhere.
+
+Changes older than eight weeks are forgotten.
 
 ## The template file
 

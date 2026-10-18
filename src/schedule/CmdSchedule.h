@@ -28,6 +28,16 @@ class CmdSchedule : public Command {
   int init(const std::vector<std::string>&, std::string&);
   int check(std::string&);
   int help(const std::vector<std::string>&, std::string&);
+
+  // Changes, in CmdScheduleEdit.cpp.
+  int swap(std::vector<std::string>, std::string&);
+  int move(std::vector<std::string>, std::string&);
+  int skip(std::vector<std::string>, std::string&);
+  int assign(std::vector<std::string>, std::string&);
+  int reset(std::vector<std::string>, std::string&);
+  int event(std::vector<std::string>, std::string&);
+  int undo(std::string&);
+  int log(std::string&);
 };
 
 #endif

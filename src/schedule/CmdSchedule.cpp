@@ -13,18 +13,17 @@
 
 #include <CLI2.h>
 #include <CmdSchedule.h>
-#include <Color.h>
 #include <Context.h>
 #include <FS.h>
 #include <ScheduleExample.h>
 #include <ScheduleHelp.h>
-#include <ScheduleStartup.h>
 #include <SchedulePlanner.h>
+#include <ScheduleStartup.h>
+#include <ScheduleState.h>
 #include <ScheduleTemplate.h>
-#include <Table.h>
+#include <ScheduleView.h>
 #include <format.h>
 #include <shared.h>
-#include <util.h>
 
 #include <algorithm>
 #include <sstream>
@@ -32,10 +31,6 @@
 using namespace schedule;
 
 namespace {
-
-const std::string noTemplateHint =
-    "There is no schedule template yet.  Run 'task schedule init' to create one from an\n"
-    "example, and 'task schedule help' to learn how the schedule works.\n";
 
 const std::string blankTemplate =
     "# PersianTask weekly schedule.  See 'task schedule help template', and the full\n"
@@ -55,112 +50,6 @@ const std::string blankTemplate =
     "# [shanbe]\n"
     "# 09:00-10:30   sat-class   fixed   -\n"
     "# 11:00-12:30   sat-study   study   soon\n";
-
-Color configColor(const std::string& name) {
-  if (!Context::getContext().color()) return Color();
-  return Color(Context::getContext().config.get(name));
-}
-
-std::string problemsNote(const Template& tmpl) {
-  return format("The schedule template has {1} {2}.  Run 'task schedule check' to see {3}.\n",
-                tmpl.problems.size(), tmpl.problems.size() == 1 ? "problem" : "problems",
-                tmpl.problems.size() == 1 ? "it" : "them");
-}
-
-// Parses a whole word as a date, such as 'farda' or '1405-08-10'.
-bool parseDay(const std::string& word, Datetime& day) {
-  Datetime parsed;
-  std::string::size_type end = 0;
-  if (!parsed.parse(word, end, Context::getContext().config.get("dateformat")) ||
-      end != word.length())
-    return false;
-
-  day = parsed.startOfDay();
-  return true;
-}
-
-// Adds a row for each assignment.  With days, the first row of each day
-// shows the day, and a blank row separates days.
-void addRows(Table& table, const std::vector<Assignment>& assignments, bool days) {
-  auto current = schedule::now();
-  int minutes = current.hour() * 60 + current.minute();
-  int column = days ? 1 : 0;
-
-  const Instance* previous = nullptr;
-  for (auto& assignment : assignments) {
-    auto& instance = *assignment.instance;
-    auto& slot = *instance.slot;
-
-    std::string id, description, from;
-    switch (assignment.source) {
-      case Source::fixed:
-        from = "fixed";
-        break;
-      case Source::rest:
-        from = "rest";
-        break;
-      case Source::slot:
-        from = slot.category.empty() ? "filter" : slot.category;
-        break;
-      case Source::fallback:
-        from = assignment.via + " (fallback)";
-        break;
-      case Source::none:
-        description = slot.optional ? "" : "nothing to do";
-        from = slot.optional ? "optional" : "-";
-        break;
-    }
-
-    if (assignment.task) {
-      auto task = *assignment.task;
-      id = std::to_string(task.id);
-      description = task.get("description");
-    }
-
-    bool sameDay = previous && previous->day.sameDay(instance.day);
-    if (days && previous && !sameDay) table.addRow();
-
-    bool past = instance.day < current.startOfDay() ||
-                (instance.day.sameDay(current) && instance.end <= minutes);
-    bool now = instance.day.sameDay(current) && instance.start <= minutes && minutes < instance.end;
-
-    Color color;
-    if (now)
-      color = configColor("color.schedule.now");
-    else if (past)
-      color = configColor("color.schedule.past");
-    else if (slot.optional && !assignment.task)
-      color = configColor("color.schedule.optional");
-
-    auto row = table.addRow();
-    if (days && !sameDay)
-      table.set(row, 0, instance.day.toString("A d B"), configColor("color.schedule.header"));
-    table.set(row, column + 0, instance.number, color);
-    table.set(row, column + 1, formatTime(instance.start) + '-' + formatTime(instance.end), color);
-    table.set(row, column + 2, slot.id, color);
-    table.set(row, column + 3, id, color);
-    table.set(row, column + 4, description, color);
-    table.set(row, column + 5, from, color);
-
-    previous = &instance;
-  }
-}
-
-Table makeTable(bool days) {
-  Table table;
-  table.width(Context::getContext().getWidth());
-  table.withColor(Context::getContext().color());
-  if (days) table.add("Day");
-  table.add("#", false);
-  table.add("Time");
-  table.add("Slot");
-  table.add("ID", false);
-  table.add("Task");
-  table.add("From");
-  setHeaderUnderline(table);
-  return table;
-}
-
 
 // Plain 'task' shows today's schedule, when there is a template.
 std::string defaultCommand(const std::vector<A2>& args) {
@@ -198,7 +87,7 @@ CmdSchedule::CmdSchedule() {
   _keyword = "schedule";
   _usage = "task          schedule [<command>]";
   _description = "Weekly schedule: 'task schedule help' for more";
-  _read_only = true;
+  _read_only = true;  // The schedule's own files are not the task database.
   _displays_id = true;
   _needs_gc = false;
   _needs_recur_update = false;
@@ -207,7 +96,6 @@ CmdSchedule::CmdSchedule() {
   _accepts_modifications = false;
   _accepts_miscellaneous = true;
   _category = Command::Category::report;
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -234,17 +122,40 @@ int CmdSchedule::execute(std::string& output) {
     return 1;
   }
 
+  auto usage = [&]() {
+    return std::string("Usage: task schedule ") + entry->name +
+           (entry->arguments.empty() ? "" : " " + entry->arguments) +
+           "\nSee 'task schedule help " + entry->name + "'.";
+  };
+
   if (name == "today") {
-    if (!args.empty()) throw std::string("Usage: task schedule today");
+    if (!args.empty()) throw usage();
     return today(output);
   }
-  if (name == "week") return week(args, output);
+  if (name == "week") {
+    if (args.size() > 1) throw usage();
+    return week(args, output);
+  }
   if (name == "check") {
-    if (!args.empty()) throw std::string("Usage: task schedule check");
+    if (!args.empty()) throw usage();
     return check(output);
   }
+  if (name == "swap") return swap(args, output);
+  if (name == "move") return move(args, output);
+  if (name == "skip") return skip(args, output);
+  if (name == "assign") return assign(args, output);
+  if (name == "reset") return reset(args, output);
+  if (name == "event") return event(args, output);
+  if (name == "undo") {
+    if (!args.empty()) throw usage();
+    return undo(output);
+  }
+  if (name == "log") {
+    if (!args.empty()) throw usage();
+    return log(output);
+  }
 
-  throw format("The schedule command '{1}' is not implemented yet.", name);
+  throw format("The schedule command '{1}' is not implemented.", name);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -270,11 +181,15 @@ int CmdSchedule::today(std::string& output) {
     out << problemsNote(tmpl);
     rc = plain ? 0 : 1;
   } else {
+    State state;
+    state.load();
+
     auto day = schedule::now().startOfDay();
-    Week week(tmpl, day);
+    Week week(tmpl, day, &state);
+    Planner planner(tmpl, week.reference());
 
     std::vector<Assignment> todays;
-    for (auto& assignment : Planner(tmpl, week.reference()).plan(week))
+    for (auto& assignment : planner.plan(week))
       if (assignment.instance->day.sameDay(day)) todays.push_back(assignment);
 
     out << configColor("color.schedule.header")
@@ -282,11 +197,9 @@ int CmdSchedule::today(std::string& output) {
         << '\n';
     if (todays.empty())
       out << "No slots today.\n";
-    else {
-      auto table = makeTable(false);
-      addRows(table, todays, false);
-      out << table.render();
-    }
+    else
+      out << renderTable(todays, false);
+    out << renderNotes(week, planner);
   }
 
   // The report below the schedule, run as if it was the command.
@@ -312,8 +225,6 @@ int CmdSchedule::today(std::string& output) {
 
 ////////////////////////////////////////////////////////////////////////////////
 int CmdSchedule::week(const std::vector<std::string>& args, std::string& output) {
-  if (args.size() > 1) throw std::string("Usage: task schedule week [next | prev | <date>]");
-
   Template tmpl;
   if (!tmpl.load()) {
     output = noTemplateHint;
@@ -334,14 +245,16 @@ int CmdSchedule::week(const std::vector<std::string>& args, std::string& output)
       throw format("'{1}' is not a date, 'next' or 'prev'.", args[0]);
   }
 
-  Week week(tmpl, day);
-  auto table = makeTable(true);
-  addRows(table, Planner(tmpl, week.reference()).plan(week), true);
+  State state;
+  state.load();
+  Week week(tmpl, day, &state);
+  Planner planner(tmpl, week.reference());
+  auto assignments = planner.plan(week);
 
   std::stringstream out;
   out << '\n'
       << configColor("color.schedule.header").colorize(week.label()) << "\n\n"
-      << table.render();
+      << renderTable(assignments, true) << renderNotes(week, planner);
   output = out.str();
   return 0;
 }
@@ -405,31 +318,49 @@ int CmdSchedule::check(std::string& output) {
   }
 
   std::stringstream out;
-  if (tmpl.problems.empty()) {
-    std::vector<int> days;
-    for (auto& slot : tmpl.slots)
-      if (std::find(days.begin(), days.end(), slot.weekday) == days.end())
-        days.push_back(slot.weekday);
-
-    out << format("{1}: no problems.  {2} slots on {3} days, {4} categories, {5} modes.\n",
-                  Template::path(), tmpl.slots.size(), days.size(), tmpl.categories.size(),
-                  tmpl.modes.size());
+  if (!tmpl.problems.empty()) {
+    std::stable_sort(tmpl.problems.begin(), tmpl.problems.end(),
+                     [](auto& a, auto& b) { return a.line < b.line; });
+    for (auto& problem : tmpl.problems) {
+      if (problem.line)
+        out << Template::path() << ':' << problem.line << ": " << problem.message << '\n';
+      else
+        out << "Configuration: " << problem.message << '\n';
+    }
+    out << format("{1} {2}.\n", tmpl.problems.size(),
+                  tmpl.problems.size() == 1 ? "problem" : "problems");
     output = out.str();
-    return 0;
+    return 1;
   }
 
-  std::stable_sort(tmpl.problems.begin(), tmpl.problems.end(),
-                   [](auto& a, auto& b) { return a.line < b.line; });
-  for (auto& problem : tmpl.problems) {
-    if (problem.line)
-      out << Template::path() << ':' << problem.line << ": " << problem.message << '\n';
-    else
-      out << "Configuration: " << problem.message << '\n';
+  std::vector<int> days;
+  for (auto& slot : tmpl.slots)
+    if (std::find(days.begin(), days.end(), slot.weekday) == days.end())
+      days.push_back(slot.weekday);
+
+  out << format("{1}: no problems.  {2} slots on {3} days, {4} categories, {5} modes.\n",
+                Template::path(), tmpl.slots.size(), days.size(), tmpl.categories.size(),
+                tmpl.modes.size());
+
+  // Changes to this week and later weeks that can no longer be honored.
+  State state;
+  state.load();
+  auto thisWeek = schedule::now().startOfWeek().toEpoch();
+  for (auto& changes : state.weeks) {
+    if (changes.first < thisWeek) continue;
+
+    Week week(tmpl, Datetime(changes.first), &state);
+    Planner planner(tmpl, week.reference());
+    planner.plan(week);
+
+    std::vector<std::string> notes = week.notes;
+    notes.insert(notes.end(), planner.notes.begin(), planner.notes.end());
+    for (auto& note : notes)
+      out << format("Note, week of {1}: {2}\n", describeDay(week.start), note);
   }
-  out << format("{1} {2}.\n", tmpl.problems.size(),
-                tmpl.problems.size() == 1 ? "problem" : "problems");
+
   output = out.str();
-  return 1;
+  return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

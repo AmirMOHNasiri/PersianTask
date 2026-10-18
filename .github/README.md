@@ -145,10 +145,23 @@ Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project    term (fallba
 | `task schedule week [next \| prev \| <date>]` | A week of slots and tasks |
 | `task schedule init [example \| blank]` | Creates the template |
 | `task schedule check` | Finds mistakes in the template, with line numbers |
+| `task schedule swap <slot> <slot>` | Swaps two slots' times, this week |
+| `task schedule move <slot> <day> <HH:MM>` | Moves a slot, this week |
+| `task schedule skip <slot>` | Skips a slot's own work, this week |
+| `task schedule assign <slot> <task \| filter>` | Pins work to a slot, this week |
+| `task schedule reset <slot \| week>` | Undoes this week's changes |
+| `task schedule event add <title> <date> <HH:MM-HH:MM>` | A one-time appointment |
+| `task schedule undo` / `task schedule log` | Undoes schedule changes, or lists them |
 | `task schedule help [<command> \| template]` | Built-in help |
 | `task tasks` | Your usual task list (your `default.command`), without the schedule |
 
-Swapping, moving and skipping slots for one week, borrowing time, a weekly review, and temporary modes such as exam season are coming in the next versions.
+For example, to study data structures on Doshanbe evening this week instead of Shanbe morning:
+
+```
+task schedule swap sat-ds mon-arch
+```
+
+Changes apply to one week, and `task schedule undo` takes them back. Note that `task undo` does not undo schedule changes, and that the schedule is kept in its own files, so it does not sync with your tasks. Borrowing time, a weekly review, and temporary modes such as exam season are coming in the next versions.
 
 The full reference, with the template format and a worked example, is in [docs/schedule.md](../docs/schedule.md). To keep plain `task` as it was, run `task config schedule.default off`.
 

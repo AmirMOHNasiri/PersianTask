@@ -34,7 +34,7 @@ def slots(output):
     descriptions used in these tests are single words."""
     result = {}
     for line in output.splitlines():
-        match = re.search(r"\b\d+ \d\d:\d\d-\d\d:\d\d (\S+)\s*(.*)$", line)
+        match = re.search(r"\b\d+ \d\d:\d\d-\d\d:\d\d (\S+)(?: \(moved\))?\s*(.*)$", line)
         if not match:
             continue
         rest = match.group(2).split()
@@ -43,6 +43,41 @@ def slots(output):
         else:
             result[match.group(1)] = ("", "", " ".join(rest))
     return result
+
+
+def places(output):
+    """{slot id: (day, time, moved)} from a 'task schedule week' table."""
+    result = {}
+    day = None
+    for line in output.splitlines():
+        match = re.match(r"^((?:Shanbe|Yekshanbe|Doshanbe|Seshanbe|Chaharshanbe|Panjshanbe|Jome)"
+                         r" \d+ \w+)?\s+\d* ?(\d\d:\d\d-\d\d:\d\d) (\S+)( \(moved\))?", line)
+        if not match:
+            continue
+        day = match.group(1) or day
+        result[match.group(3)] = (day.split()[0], match.group(2), bool(match.group(4)))
+    return result
+
+
+EDIT = """
+[settings]
+fallback = soon rest
+
+[categories]
+os     4   project:os
+ds     2   project:ds
+soon   -   due.before:now+7d
+
+[shanbe]
+08:00-09:00  a-os     study  os
+09:00-10:00  b-ds     study  ds
+10:00-11:00  c-fixed  fixed  os
+14:00-15:00  d-ds     study  ds
+
+[yekshanbe]
+08:00-09:00  e-os     study  os
+18:00-sleep  f-rest   rest   -    protected
+"""
 
 
 SMALL = """
@@ -397,9 +432,248 @@ def test_help(task):
         check_true("The README mentions '{}'".format(name), "task schedule " + name in readme)
 
 
+def test_swap(task):
+    write_template(task, EDIT)
+
+    task.out(NOW, "schedule", "swap", "a-os", "d-ds")
+    found = places(task.out(NOW, "schedule", "week"))
+    check("swap gives each slot the other's time", (found.get("a-os"), found.get("d-ds")),
+          (("Shanbe", "14:00-15:00", True), ("Shanbe", "08:00-09:00", True)))
+
+    found = places(task.out(NOW, "schedule", "week", "next"))
+    check("swap changes only that week", found.get("a-os"), ("Shanbe", "08:00-09:00", False))
+
+    task.out(NOW, "schedule", "swap", "2", "5")  # b-ds and e-os, by number.
+    found = places(task.out(NOW, "schedule", "week"))
+    check("swap by slot number", found.get("b-ds"), ("Yekshanbe", "08:00-09:00", True))
+
+    task.out(NOW, "schedule", "swap", "b-ds", "e-os", "next")
+    found = places(task.out(NOW, "schedule", "week", "next"))
+    check("swap in the next week", found.get("e-os"), ("Shanbe", "09:00-10:00", True))
+
+    for args, text in [(["a-os", "c-fixed"], "fixed slot"), (["a-os", "f-rest"], "protected"),
+                       (["a-os", "a-os"], "itself"), (["a-os", "zz"], "no slot 'zz'")]:
+        code, out, err = task.run(NOW, "schedule", "swap", *args)
+        check_true("swap {} fails: {}".format(" ".join(args), text), code != 0 and text in err, err)
+
+
+def test_move(task):
+    write_template(task, EDIT)
+
+    task.out(NOW, "schedule", "move", "d-ds", "yekshanbe", "12:00")
+    found = places(task.out(NOW, "schedule", "week"))
+    check("move keeps the slot's length", found.get("d-ds"), ("Yekshanbe", "12:00-13:00", True))
+
+    task.out(NOW, "schedule", "move", "d-ds", "shanbe", "14:00")
+    found = places(task.out(NOW, "schedule", "week"))
+    check("Moving a slot back home is no move", found.get("d-ds"), ("Shanbe", "14:00-15:00", False))
+
+    task.out(NOW, "schedule", "move", "b-ds", "1405-08-03", "12:00")  # Next week's Yekshanbe.
+    check("move to a date changes that date's week",
+          places(task.out(NOW, "schedule", "week", "next")).get("b-ds"),
+          ("Yekshanbe", "12:00-13:00", True))
+    check("move to a date leaves this week alone",
+          places(task.out(NOW, "schedule", "week")).get("b-ds"), ("Shanbe", "09:00-10:00", False))
+
+    task.out(NOW, "schedule", "event", "add", "Dentist", "1405-07-26", "15:00-16:00")
+    for args, text in [(["b-ds", "shanbe", "10:30"], "fixed slot c-fixed"),
+                       (["b-ds", "shanbe", "08:30"], "schedule swap b-ds a-os"),
+                       (["b-ds", "yekshanbe", "15:30"], "event e1"),
+                       (["b-ds", "shanbe", "05:00"], "outside the day"),
+                       (["b-ds", "shanbe", "23:30"], "outside the day"),
+                       (["c-fixed", "shanbe", "12:00"], "fixed slot"),
+                       (["f-rest", "jome", "12:00"], "protected"),
+                       (["b-ds", "fooday", "12:00"], "not a day"),
+                       (["b-ds", "shanbe", "25:00"], "not a time"),
+                       (["b-ds", "1405-08-03", "12:00", "prev"], "not in the week given")]:
+        code, out, err = task.run(NOW, "schedule", "move", *args)
+        check_true("move {} fails: {}".format(" ".join(args), text), code != 0 and text in err, err)
+
+    task.out(NOW, "schedule", "move", "b-ds", "shanbe", "۱۲:۰۰")
+    check("move accepts Persian digits", places(task.out(NOW, "schedule", "week")).get("b-ds"),
+          ("Shanbe", "12:00-13:00", True))
+
+
+def test_skip_and_assign(task):
+    write_template(task, EDIT)
+    task.out("add", "OS1", "project:os")
+    task.out("add", "DS1", "project:ds")
+    task.out("add", "Soon1", "due:2026-10-19")
+
+    task.out(NOW, "schedule", "skip", "b-ds")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("A skipped slot goes down its fallback chain", found.get("b-ds"),
+          ("3", "Soon1", "soon (fallback), skipped"))
+    check("Another slot takes the skipped slot's task", found.get("d-ds", ("", ""))[1], "DS1")
+
+    task.out(NOW, "schedule", "assign", "b-ds", "1")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("assign pins a task, and replaces a skip", found.get("b-ds"), ("1", "OS1", "assigned"))
+
+    task.out(NOW, "schedule", "assign", "e-os", "due.before:2026-10-25")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("assign pins a filter", found.get("e-os"), ("3", "Soon1", "assigned"))
+
+    task.out(NOW, "schedule", "skip", "b-ds")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check_true("skip replaces an assign", "skipped" in found.get("b-ds", ("", "", ""))[2], found)
+
+    for args, text in [(["c-fixed", "1"], "fixed slot"), (["f-rest", "1"], "rest slot"),
+                       (["a-os", "99"], "no task 99"), (["a-os", "( project:os"], "Mismatched")]:
+        code, out, err = task.run(NOW, "schedule", "assign", *args)
+        check_true("assign {} fails: {}".format(" ".join(args), text), code != 0 and text in err, err)
+    code, out, err = task.run(NOW, "schedule", "skip", "c-fixed")
+    check_true("skip of a fixed slot fails", code != 0 and "fixed slot" in err, err)
+
+
+def test_precedence(task):
+    """template -> per-week changes: a change always wins over the template."""
+    write_template(task, EDIT)
+    task.out("add", "OS1", "project:os", "priority:H")
+    task.out("add", "DS1", "project:ds")
+
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("The template gives a-os its category's task", found.get("a-os", ("", ""))[1], "OS1")
+
+    task.out(NOW, "schedule", "assign", "a-os", "2")
+    task.out(NOW, "schedule", "swap", "a-os", "d-ds")
+    out = task.out(NOW, "schedule", "week")
+    check("A moved slot keeps its assigned task", slots(out).get("a-os"), ("2", "DS1", "assigned"))
+    check("A moved slot is at its new time", places(out).get("a-os"), ("Shanbe", "14:00-15:00", True))
+
+
+def test_reset(task):
+    write_template(task, EDIT)
+
+    task.out(NOW, "schedule", "swap", "a-os", "d-ds")
+    out = task.out(NOW, "schedule", "reset", "a-os")
+    check_true("Resetting one slot of a swap says so", "d-ds" in out, out)
+    found = places(task.out(NOW, "schedule", "week"))
+    check("Resetting one slot of a swap resets both", (found.get("a-os"), found.get("d-ds")),
+          (("Shanbe", "08:00-09:00", False), ("Shanbe", "14:00-15:00", False)))
+
+    task.out(NOW, "schedule", "move", "b-ds", "shanbe", "12:00")
+    task.out(NOW, "schedule", "move", "a-os", "shanbe", "09:00")
+    code, out, err = task.run(NOW, "schedule", "reset", "b-ds")
+    check_true("reset refuses to put a slot over another", code != 0 and "a-os" in err, err)
+
+    task.out(NOW, "schedule", "skip", "e-os")
+    task.out(NOW, "schedule", "reset", "week")
+    found = places(task.out(NOW, "schedule", "week"))
+    check_true("reset week undoes every change", not any(p[2] for p in found.values()), found)
+    check_true("reset week undoes skips", "skipped" not in task.out(NOW, "schedule", "week"))
+
+
+def test_events(task):
+    write_template(task, EDIT)
+
+    out = task.out(NOW, "schedule", "event", "add", "Dentist", "visit", "1405-07-25", "08:30-09:30")
+    check_true("event add reports overlapped slots", "a-os" in out and "b-ds" in out, out)
+    task.out(NOW, "schedule", "event", "add", "Meeting", "farda", "11:00-12:00")
+
+    out = task.out(NOW, "schedule", "week")
+    check_true("Events show in the week", "Dentist visit" in out and "Meeting" in out, out)
+    check("Events have their place", places(out).get("e2"), ("Yekshanbe", "11:00-12:00", False))
+
+    out = task.out(NOW, "schedule", "event", "list")
+    check_true("event list", "e1" in out and "Dentist visit" in out and "e2" in out, out)
+
+    task.out(NOW, "schedule", "event", "delete", "e1")
+    check_true("event delete", "Dentist" not in task.out(NOW, "schedule", "week"))
+
+    for args in [["add", "X", "notadate", "10:00-11:00"], ["add", "X", "farda", "11:00-10:00"],
+                 ["delete", "e9"]]:
+        code, _, _ = task.run(NOW, "schedule", "event", *args)
+        check_true("event {} fails".format(" ".join(args)), code != 0, code)
+
+    code, out, err = task.run(NOW, "schedule", "skip", "e2")
+    check_true("Events are not slots", code != 0 and "is an event" in err, err)
+
+
+def test_undo_and_log(task):
+    write_template(task, EDIT)
+
+    out = task.out(NOW, "schedule", "undo")
+    check_true("undo with no changes", "nothing to undo" in out, out)
+    check_true("log with no changes", "No schedule changes" in task.out(NOW, "schedule", "log"))
+
+    task.out(NOW, "schedule", "move", "d-ds", "yekshanbe", "12:00")
+    task.out(NOW, "schedule", "skip", "a-os")
+    task.out(NOW, "schedule", "event", "add", "Dentist", "1405-07-27", "17:00-18:00")
+
+    log = task.out(NOW, "schedule", "log").splitlines()
+    check_true("log lists changes, most recent first",
+               "Added event" in log[0] and "Skipped a-os" in log[1] and "Moved d-ds" in log[2], log)
+
+    out = task.out(NOW, "schedule", "undo")
+    check_true("undo says what it undid", "Added event" in out, out)
+    check_true("undo restores the state", "Dentist" not in task.out(NOW, "schedule", "week"))
+    task.out(NOW, "schedule", "undo")
+    task.out(NOW, "schedule", "undo")
+    found = places(task.out(NOW, "schedule", "week"))
+    check("Repeated undo restores the template", found.get("d-ds"), ("Shanbe", "14:00-15:00", False))
+    check_true("Nothing left to undo", "nothing to undo" in task.out(NOW, "schedule", "undo"))
+
+    check_true("task undo does not touch the schedule",
+               task.run(NOW, "schedule", "undo")[0] == 0)
+
+
+def test_dangling_references(task):
+    write_template(task, EDIT)
+    task.out("add", "OS1", "project:os")
+    task.out(NOW, "schedule", "assign", "a-os", "1")
+    task.out(NOW, "schedule", "skip", "b-ds")
+    task.out("1", "done")
+    write_template(task, EDIT.replace("09:00-10:00  b-ds     study  ds\n", ""))
+
+    code, out, _ = task.run(NOW, "schedule", "week")
+    check("A dangling change does not break the week", code, 0)
+    check_true("The week notes a change to a removed slot", "'b-ds'" in out and "Note:" in out, out)
+    check_true("The week notes an assigned task that is done", "assigned to a-os" in out, out)
+
+    code, out, _ = task.run(NOW, "schedule", "check")
+    check_true("check reports dangling changes", code == 0 and "'b-ds'" in out and "a-os" in out, out)
+
+
+def test_state_files(task):
+    write_template(task, EDIT)
+    data = os.path.join(task.dir, "data")
+
+    for args in [["schedule"], ["schedule", "week"], ["schedule", "check"], []]:
+        task.out(NOW, *args)
+    check_true("Viewing never creates the state", not os.path.exists(os.path.join(data, "schedule.state.json")))
+
+    # Concurrent changes must not lose each other.
+    import subprocess
+    processes = [subprocess.Popen([task.binary, NOW, "schedule", "event", "add", "E{}".format(i),
+                                   "1405-07-27", "17:00-18:00"],
+                                  env=task.env, cwd=task.dir, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                 for i in range(12)]
+    check("Concurrent changes all succeed", [p.wait() for p in processes], [0] * 12)
+
+    import json
+    with open(os.path.join(data, "schedule.state.json")) as f:
+        events = json.load(f)["events"]
+    check("Concurrent changes are all kept", sorted(e["title"] for e in events),
+          sorted("E{}".format(i) for i in range(12)))
+    check("Concurrent changes have distinct ids", len(set(e["id"] for e in events)), 12)
+    check("Concurrent changes are all in the log",
+          len(task.out(NOW, "schedule", "log").splitlines()), 12 + 2)
+    check_true("No temporary files are left", not [n for n in os.listdir(data) if n.endswith(".tmp")])
+
+    with open(os.path.join(data, "schedule.state.json"), "w") as f:
+        f.write("{ not json")
+    code, out, err = task.run(NOW, "schedule", "week")
+    check_true("A damaged state is reported", code != 0 and "damaged" in err, err)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
                         test_context_ignored, test_relative_filters, test_quoted_filters,
                         test_tasks_alias, test_plain_task_with_problems, test_today_and_plain_task,
-                        test_viewing_writes_nothing, test_help], fresh=True))
+                        test_viewing_writes_nothing, test_swap, test_move,
+                        test_skip_and_assign, test_precedence, test_reset, test_events,
+                        test_undo_and_log, test_dangling_references, test_state_files,
+                        test_help], fresh=True))

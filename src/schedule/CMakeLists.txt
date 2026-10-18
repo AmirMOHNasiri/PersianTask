@@ -16,10 +16,13 @@ file (READ ${SCHEDULE_EXAMPLE_FILE} SCHEDULE_EXAMPLE)
 configure_file (ScheduleExample.h.in ${CMAKE_CURRENT_BINARY_DIR}/ScheduleExample.h @ONLY)
 
 set (schedule_SRCS CmdSchedule.cpp       CmdSchedule.h
+                   CmdScheduleEdit.cpp
                    ScheduleHelp.cpp      ScheduleHelp.h
                    SchedulePlanner.cpp   SchedulePlanner.h
                    ScheduleStartup.h
-                   ScheduleTemplate.cpp  ScheduleTemplate.h)
+                   ScheduleState.cpp     ScheduleState.h
+                   ScheduleTemplate.cpp  ScheduleTemplate.h
+                   ScheduleView.cpp      ScheduleView.h)
 
 add_library (schedule STATIC ${schedule_SRCS})
 target_link_libraries(schedule taskchampion-cpp)

@@ -13,9 +13,11 @@
 
 #include <CLI2.h>
 #include <Datetime.h>
+#include <ScheduleState.h>
 #include <ScheduleTemplate.h>
 #include <Task.h>
 
+#include <deque>
 #include <map>
 #include <optional>
 #include <string>
@@ -54,35 +56,58 @@ class NowGuard {
   time_t _saved;
 };
 
-// A slot on a particular day.
+// A slot on a particular day, after this week's changes.
 struct Instance {
-  int number{0};  // Position in the week, starting at 1.
+  int number{0};  // Position in the template's week, starting at 1.  Events have 0.
+  std::string id;  // The slot id, or e<N> for event N.
   const Slot* slot{nullptr};
+  const Event* event{nullptr};
   Datetime day;  // Midnight.
   int start{0};
   int end{0};
+
+  bool moved{false};
+  bool skipped{false};
+  std::string pinnedTask;  // UUID.
+  std::string pinnedFilter;
 };
 
 // The slots of the week containing a day.  Weeks start on the configured
 // weekstart (Saturday by default), and days are calendar days.
+// The order of layers is: the template, then the active modes (later), then
+// this week's changes (move, swap, skip, assign), then borrowing (later).
 class Week {
  public:
-  Week(const Template&, const Datetime&);
+  Week(const Template&, const Datetime&, const State* = nullptr);
+  Week(const Week&) = delete;  // Instances point into the week, and the state.
+  Week& operator=(const Week&) = delete;
 
   std::string label() const;
+  Datetime end() const;  // Midnight after the last day.
+
+  // The slot by id, by number, or the event by e<N>, or nullptr.
+  const Instance* find(const std::string&) const;
 
   // The time that filters such as due.before:now+7d are relative to: the
   // current time for this week, and the start of the week for other weeks.
   Datetime reference() const;
 
   Datetime start;
-  std::vector<Instance> instances;
+  std::vector<Instance> instances;  // In time order.
+
+  // Changes in the state that refer to slots no longer in the template.
+  std::vector<std::string> notes;
+
+ private:
+  std::deque<Slot> _eventSlots;
 };
 
 // How a slot got its task.
 enum class Source {
   fixed,     // A fixed slot, which never takes a task.
   rest,      // A rest slot, or 'rest' in the fallback chain.
+  pinned,    // Assigned with 'task schedule assign'.
+  event,     // A one-time event.
   slot,      // The slot's own filter.
   fallback,  // A category in the fallback chain.
   none       // Nothing matched.
@@ -108,12 +133,17 @@ class Planner {
   std::vector<Assignment> plan(const Week&);
   std::vector<Task> matching(const std::string& filter);
 
+  // Assignments that could not be honored, such as a pinned task that is no
+  // longer pending.
+  std::vector<std::string> notes;
+
  private:
   std::optional<Task> pick(const std::string& filter, const Datetime& day);
 
   const Template& _template;
   Datetime _reference;
-  std::vector<Task> _pending;
+  std::vector<Task> _all;      // Pending, waiting and blocked tasks.
+  std::vector<Task> _pending;  // Those that can be worked on now.
   std::map<std::string, std::vector<Task>> _cache;
   std::map<std::pair<std::string, time_t>, int> _used;  // Slots per task (uuid) per day.
 };
