@@ -52,9 +52,9 @@ add_executable (calc_executable calc.cpp)
 add_executable (lex_executable lex.cpp)
 
 # Yes, 'task' (and hence libshared) is included twice, otherwise linking fails on assorted OSes.
-target_link_libraries (task_executable task commands columns libshared task libshared ${TASK_LIBRARIES})
-target_link_libraries (calc_executable task commands columns libshared task libshared ${TASK_LIBRARIES})
-target_link_libraries (lex_executable  task commands columns libshared task libshared ${TASK_LIBRARIES})
+target_link_libraries (task_executable task commands schedule columns libshared task schedule libshared ${TASK_LIBRARIES})
+target_link_libraries (calc_executable task commands schedule columns libshared task schedule libshared ${TASK_LIBRARIES})
+target_link_libraries (lex_executable  task commands schedule columns libshared task schedule libshared ${TASK_LIBRARIES})
 if (DARWIN)
     # SystemConfiguration is required by Rust libraries like reqwest, to get proxy configuration.
     target_link_libraries (task_executable "-framework CoreFoundation -framework Security -framework SystemConfiguration")

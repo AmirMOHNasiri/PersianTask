@@ -12,87 +12,12 @@ import datetime
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
-import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import jalali_reference as ref  # noqa: E402
-
-# All dates are compared in UTC, so that midnight is the same everywhere.
-os.environ["TZ"] = "UTC"
-time.tzset()
-
-
-class Task:
-    def __init__(self, binary):
-        self.binary = binary
-        self.dir = tempfile.mkdtemp(prefix="persiantask-test-")
-        self.rc = os.path.join(self.dir, "taskrc")
-        with open(self.rc, "w") as rc:
-            rc.write("data.location={}\n".format(os.path.join(self.dir, "data")))
-            rc.write("confirmation=off\n")
-            rc.write("recurrence.confirmation=off\n")
-            rc.write("color=off\n")
-            rc.write("verbose=nothing\n")
-            rc.write("news.version=99.0.0\n")
-            rc.write("hooks=off\n")
-        # The default configuration includes a theme, which is looked up in the
-        # current directory, so task is run from here.
-        shutil.copy(os.path.join(HERE, "..", "doc", "rc", "default.theme"), self.dir)
-        self.env = dict(os.environ, TASKRC=self.rc, TASKDATA=os.path.join(self.dir, "data"))
-
-    def run(self, *args):
-        p = subprocess.run([self.binary] + list(args), env=self.env, cwd=self.dir,
-                           stdin=subprocess.DEVNULL, capture_output=True, text=True)
-        return p.returncode, p.stdout, p.stderr
-
-    def out(self, *args):
-        code, out, err = self.run(*args)
-        if code != 0:
-            raise AssertionError("task {} failed ({}): {}".format(" ".join(args), code, err.strip()))
-        return out.strip()
-
-    def calc(self, expression):
-        return self.out("calc", expression)
-
-    def export(self, *filter):
-        return json.loads(self.out(*filter, "export"))
-
-    def cleanup(self):
-        shutil.rmtree(self.dir, ignore_errors=True)
-
-
-def jstr(date):
-    """Jalali YYYY-MM-DD of a datetime.date."""
-    return "{:04d}-{:02d}-{:02d}".format(*ref.to_jalali(date))
-
-
-def export_date(value):
-    """datetime.date of an exported (UTC) date, such as 20261016T000000Z."""
-    return datetime.datetime.strptime(value, "%Y%m%dT%H%M%SZ").date()
-
-
-def tm_wday(date):
-    """Day of the week, 0 = Sunday, like tm_wday."""
-    return (date.weekday() + 1) % 7
-
-
-SATURDAY = 6
-
-results = []
-
-
-def check(name, actual, expected):
-    results.append((name, actual == expected, actual, expected))
-
-
-def check_true(name, condition, detail=""):
-    results.append((name, bool(condition), detail, True))
+from testlib import (SATURDAY, check, check_true, export_date, jstr, ref,  # noqa: E402
+                     run_tests, tm_wday)
 
 
 ################################################################################
@@ -234,7 +159,8 @@ def test_named_dates(task):
         expected[word] = start(ref.from_jalali(jy, month, number))
 
     # Month names are the start of the next such month.
-    for month, word in [(1, "farvardin"), (6, "shahrivar"), (6, "shah"), (7, "mehr"), (12, "esfand")]:
+    for month, word in [(1, "farvardin"), (1, "far"), (6, "shahrivar"), (6, "shah"), (7, "mehr"),
+                        (12, "esfand")]:
         expected[word] = start(ref.from_jalali(jy + 1 if jm >= month else jy, month, 1))
 
     # Day names are the next such day, never today.
@@ -242,6 +168,11 @@ def test_named_dates(task):
                       (5, "jome"), (5, "friday"), (1, "monday")]:
         delta = dow - tm_wday(today)
         expected[word] = start(today + datetime.timedelta(days=delta + 7 if delta <= 0 else delta))
+
+    # Persian words for nearby days.
+    for offset, word in [(-2, "pariruz"), (-1, "diruz"), (0, "emruz"), (1, "farda"),
+                         (2, "pasfarda")]:
+        expected[word] = start(today + datetime.timedelta(days=offset))
 
     for word, value in expected.items():
         check("Named date '{}'".format(word), task.calc(word), value)
@@ -303,36 +234,7 @@ def test_config(task):
 
 
 ################################################################################
-def main():
-    if len(sys.argv) != 2:
-        print(__doc__.strip())
-        return 2
-
-    task = Task(os.path.abspath(sys.argv[1]))
-    tests = [test_gregorian_to_jalali, test_jalali_to_gregorian, test_validity,
-             test_digits, test_machine_formats, test_named_dates, test_display,
-             test_calendar, test_recurrence, test_config]
-    try:
-        for test in tests:
-            try:
-                test(task)
-            except Exception as e:
-                results.append((test.__name__, False, "exception: {}".format(e), "no exception"))
-    finally:
-        task.cleanup()
-
-    failed = 0
-    print("1..{}".format(len(results)))
-    for number, (name, ok, actual, expected) in enumerate(results, 1):
-        print("{}ok {} - {}".format("" if ok else "not ", number, name))
-        if not ok:
-            failed += 1
-            print("#   got:      {!r}".format(actual))
-            print("#   expected: {!r}".format(expected))
-
-    print("# {} passed, {} failed".format(len(results) - failed, failed))
-    return 1 if failed else 0
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_tests([test_gregorian_to_jalali, test_jalali_to_gregorian, test_validity,
+                        test_digits, test_machine_formats, test_named_dates, test_display,
+                        test_calendar, test_recurrence, test_config]))

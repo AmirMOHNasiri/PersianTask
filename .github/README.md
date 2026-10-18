@@ -1,8 +1,8 @@
 # PersianTask
 
-**Taskwarrior with the Jalali (Persian / Shamsi) calendar**
+**Taskwarrior with the Jalali (Persian / Shamsi) calendar, and a weekly schedule**
 
-PersianTask is a version of [Taskwarrior](https://taskwarrior.org) in which all dates, both entered and displayed, use the Jalali calendar, the official calendar of Iran. Everything else works exactly like Taskwarrior. Upstream Taskwarrior updates are merged every week, once they pass the Jalali calendar tests.
+PersianTask is a version of [Taskwarrior](https://taskwarrior.org) in which all dates, both entered and displayed, use the Jalali calendar, the official calendar of Iran. It also plans your week: a [weekly schedule](#weekly-schedule) of time slots, each of which pulls the right task to work on. Everything else works exactly like Taskwarrior. Upstream Taskwarrior updates are merged every week, once they pass the Jalali calendar tests.
 
 ```
 $ task add meeting due:1405-08-01
@@ -94,7 +94,63 @@ Days: Shanbe, Yekshanbe, Doshanbe, Seshanbe, Chaharshanbe, Panjshanbe, Jome. Eng
 
 Names may be abbreviated to three or more letters, such as `due:far` or `due:pan`. Since `sha` matches Shanbe, use at least `shah` for Shahrivar.
 
+Nearby days can also be written in Persian, in full: `pariruz`, `diruz`, `emruz`, `farda` and `pasfarda` (two days ago, yesterday, today, tomorrow, and the day after).
+
 The display format is set with `dateformat`. For example, `task config dateformat 'A d B Y'` shows dates as `Panjshanbe 30 Mehr 1405`.
+
+## Weekly schedule
+
+Describe your typical week once, as a template of time slots: classes, study blocks, research time. Each slot pulls a pending task from its category (a Taskwarrior filter, such as `project:os`), or from a fallback chain when that category has nothing to do. Plain `task` then shows today's slots and what to do in each, followed by the most important tasks.
+
+### Quick start
+
+1. Install PersianTask (above).
+2. Create a template from the example, a university student's week:
+
+   ```
+   task schedule init
+   ```
+
+3. Edit `~/.task/schedule`: your categories, and your slots for each day, `[shanbe]` to `[jome]`. A slot is one line:
+
+   ```
+   [shanbe]
+   07:30-10:30   sat-research   study   research
+   14:00-16:00   sat-os-hw      study   os         filter:"project:os +homework"
+   ```
+
+4. Check it, and look at your week:
+
+   ```
+   task schedule check
+   task schedule week
+   ```
+
+```
+$ task schedule week
+Week 31: Shanbe 25 Mehr 1405 - Jome 1 Aban 1405
+
+Day              #  Time         Slot           ID  Task            From
+Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project    term (fallback)
+                 2  07:30-10:30  sat-research    2  Paper draft     research
+                 3  11:00-12:30  sat-ds          3  Tree exercises  ds
+                 4  14:00-16:00  sat-os-hw       1  OS homework 3   os
+```
+
+### Commands
+
+| Command | Meaning |
+|---|---|
+| `task schedule today` (or plain `task`) | Today's slots, their tasks, and the important tasks |
+| `task schedule week [next \| prev \| <date>]` | A week of slots and tasks |
+| `task schedule init [example \| blank]` | Creates the template |
+| `task schedule check` | Finds mistakes in the template, with line numbers |
+| `task schedule help [<command> \| template]` | Built-in help |
+| `task tasks` | All tasks, without the schedule |
+
+Swapping, moving and skipping slots for one week, borrowing time, a weekly review, and temporary modes such as exam season are coming in the next versions.
+
+The full reference, with the template format and a worked example, is in [docs/schedule.md](../docs/schedule.md). To keep plain `task` as it was, run `task config schedule.default off`.
 
 ## Notes
 
@@ -107,7 +163,9 @@ The display format is set with `dateformat`. For example, `task config dateforma
 
 - `src/libshared/src/Datetime.cpp`: Jalali conversion (Borkowski's algorithm, which matches the official Iranian calendar), parsing and display.
 - `src/commands/CmdCalendar.cpp`, `src/recur.cpp`, `src/Context.cpp`: the calendar view, recurrence, and weeks starting on Saturday.
-- `persiantask/`: the Jalali calendar tests, and the script that merges upstream updates.
+- `src/schedule/`: the weekly schedule, and `examples/schedule/student-week`, the example template.
+- `src/CLI2.cpp`: a hook so that plain `task` can show the schedule.
+- `persiantask/`: the tests, and the scripts that build packages and merge upstream updates.
 - `.github/workflows/persiantask-*.yml`: runs the tests, and merges upstream every week.
 - `pkg/arch/PKGBUILD`: the Arch Linux package, and `pkg/arch/persiantask.asc`, the key that signs the prebuilt packages.
 

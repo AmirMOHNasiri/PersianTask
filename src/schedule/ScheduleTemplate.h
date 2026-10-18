@@ -1,0 +1,114 @@
+////////////////////////////////////////////////////////////////////////////////
+//
+// Copyright 2026, AmirMOHNasiri.
+//
+// Part of PersianTask, released under the MIT license, like Taskwarrior.
+//
+// https://www.opensource.org/licenses/mit-license.php
+//
+////////////////////////////////////////////////////////////////////////////////
+
+#ifndef INCLUDED_SCHEDULETEMPLATE
+#define INCLUDED_SCHEDULETEMPLATE
+
+#include <string>
+#include <vector>
+
+namespace schedule {
+
+enum class Kind { fixed, study, floating, buffer, rest };
+
+std::string kindName(Kind);
+
+// A mistake in the template, reported by 'task schedule check'.  Line 0 means
+// the problem is in the configuration, not in a line of the template.
+struct Problem {
+  int line;
+  std::string message;
+};
+
+struct Category {
+  std::string name;
+  double floor{-1};  // Hours a week, or -1 for none.
+  std::string filter;
+  int line{0};
+};
+
+// A recurring weekly time slot.
+struct Slot {
+  std::string id;
+  int weekday{0};  // 0 = Sunday, like tm_wday.
+  int start{0};    // Minutes since midnight.
+  int end{0};
+  Kind kind{Kind::study};
+  std::string category;  // Empty for '-'.
+  std::string filter;    // Overrides the category's filter.
+  std::vector<std::string> fallback;
+  bool hasFallback{false};  // Overrides the global fallback chain.
+  bool optional{false};
+  bool isProtected{false};
+  int line{0};
+};
+
+// A [mode <name>] section.  Modes are parsed and checked here, and applied
+// by the planner.
+struct Mode {
+  std::string name;
+  std::vector<std::string> params;
+  std::string active;
+  std::vector<std::pair<std::string, int>> gives;   // Rule, line.
+  std::vector<std::pair<std::string, int>> floors;  // Rule, line.
+  int line{0};
+};
+
+// The weekly schedule template: a hand-written text file, documented in
+// docs/schedule.md.
+class Template {
+ public:
+  static std::string path();
+  static int wake();
+  static int sleep();
+
+  // Returns false if the file does not exist.  Mistakes are collected in
+  // problems, not thrown.
+  bool load();
+  void parse(const std::string&);
+
+  const Category* category(const std::string&) const;
+  const Slot* slot(const std::string&) const;
+  std::string filterFor(const Slot&) const;
+  const std::vector<std::string>& fallbackFor(const Slot&) const;
+
+  double estimateFactor{1.0};
+  int unestimatedPerDay{1};
+  std::vector<std::string> fallback;
+  std::vector<std::string> borrow;
+
+  std::vector<Category> categories;
+  std::vector<Slot> slots;
+  std::vector<Mode> modes;
+  std::vector<Problem> problems;
+
+ private:
+  void parseSetting(const std::string&, int);
+  void parseCategory(const std::string&, int);
+  void parseSlot(const std::string&, int, int);
+  void parseModeLine(Mode&, const std::string&, int);
+  void validate();
+  void problem(int, const std::string&);
+
+  int _fallbackLine{0};
+  int _borrowLine{0};
+};
+
+// Minutes since midnight of HH:MM, 'wake' or 'sleep', or -1 if invalid.
+int parseTime(const std::string&);
+std::string formatTime(int);
+
+// Day of the week (0 = Sunday) of a Finglish day name, or -1.
+int parseDayName(const std::string&);
+
+}  // namespace schedule
+
+#endif
+////////////////////////////////////////////////////////////////////////////////

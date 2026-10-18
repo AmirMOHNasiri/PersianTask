@@ -74,6 +74,7 @@
 #include <CmdProjects.h>
 #include <CmdPurge.h>
 #include <CmdReports.h>
+#include <CmdSchedule.h>
 #include <CmdShow.h>
 #include <CmdStart.h>
 #include <CmdStats.h>
@@ -208,6 +209,8 @@ void Command::factory(std::map<std::string, Command*>& all) {
   c = new CmdPurge();
   all[c->keyword()] = c;
   c = new CmdReports();
+  all[c->keyword()] = c;
+  c = new CmdSchedule();
   all[c->keyword()] = c;
   c = new CmdShow();
   all[c->keyword()] = c;

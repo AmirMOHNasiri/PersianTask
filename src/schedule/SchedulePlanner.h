@@ -1,0 +1,108 @@
+////////////////////////////////////////////////////////////////////////////////
+//
+// Copyright 2026, AmirMOHNasiri.
+//
+// Part of PersianTask, released under the MIT license, like Taskwarrior.
+//
+// https://www.opensource.org/licenses/mit-license.php
+//
+////////////////////////////////////////////////////////////////////////////////
+
+#ifndef INCLUDED_SCHEDULEPLANNER
+#define INCLUDED_SCHEDULEPLANNER
+
+#include <CLI2.h>
+#include <Datetime.h>
+#include <ScheduleTemplate.h>
+#include <Task.h>
+
+#include <map>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace schedule {
+
+// Saves the global command line state, and restores it when destroyed, even
+// when an exception is thrown.  Filters are evaluated by Taskwarrior's own
+// filter engine, which reads that global state.
+class CliGuard {
+ public:
+  CliGuard();
+  ~CliGuard();
+  CliGuard(const CliGuard&) = delete;
+  CliGuard& operator=(const CliGuard&) = delete;
+
+  // Replaces the command line with these arguments, after the binary.  With
+  // useContext false, the active context (task context) is not applied.
+  static void replaceArgs(const std::vector<std::string>&, bool useContext);
+
+ private:
+  CLI2 _saved;
+};
+
+// A slot on a particular day.
+struct Instance {
+  int number{0};  // Position in the week, starting at 1.
+  const Slot* slot{nullptr};
+  Datetime day;  // Midnight.
+  int start{0};
+  int end{0};
+};
+
+// The slots of the week containing a day.  Weeks start on the configured
+// weekstart (Saturday by default), and days are calendar days.
+class Week {
+ public:
+  Week(const Template&, const Datetime&);
+
+  std::string label() const;
+
+  Datetime start;
+  std::vector<Instance> instances;
+};
+
+// How a slot got its task.
+enum class Source {
+  fixed,     // A fixed slot, which never takes a task.
+  rest,      // A rest slot, or 'rest' in the fallback chain.
+  slot,      // The slot's own filter.
+  fallback,  // A category in the fallback chain.
+  none       // Nothing matched.
+};
+
+struct Assignment {
+  const Instance* instance{nullptr};
+  std::optional<Task> task;
+  Source source{Source::none};
+  std::string via;  // The category, for slot and fallback.
+};
+
+// Chooses a task for each slot of a week.  First each slot takes the most
+// urgent pending task of its own category, in time order, so the earliest slot
+// gets the most urgent task.  Then the slots still empty go down their
+// fallback chains, in time order.  Reads tasks, never writes anything.
+class Planner {
+ public:
+  explicit Planner(const Template&);
+
+  std::vector<Assignment> plan(const Week&);
+  std::vector<Task> matching(const std::string& filter);
+
+ private:
+  std::optional<Task> pick(const std::string& filter, const Datetime& day);
+
+  const Template& _template;
+  std::vector<Task> _pending;
+  std::map<std::string, std::vector<Task>> _cache;
+  std::map<std::pair<std::string, time_t>, int> _used;  // Slots per task (uuid) per day.
+};
+
+// The current time.  The setting rc.schedule.now exists only for the tests,
+// and is deliberately not documented.
+Datetime now();
+
+}  // namespace schedule
+
+#endif
+////////////////////////////////////////////////////////////////////////////////

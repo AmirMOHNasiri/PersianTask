@@ -145,6 +145,7 @@ configure_file (
 
 add_subdirectory (src)
 add_subdirectory (src/commands)
+add_subdirectory (src/schedule)
 add_subdirectory (src/taskchampion-cpp)
 add_subdirectory (src/columns)
 add_subdirectory (doc)

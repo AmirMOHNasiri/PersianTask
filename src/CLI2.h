@@ -60,6 +60,10 @@ class CLI2 {
  public:
   static int minimumMatchLength;
 
+  // Chooses the command when none is given, instead of default.command, if
+  // set.  The schedule uses it to show today's schedule on a plain 'task'.
+  static std::string (*defaultCommandHook)(const std::vector<A2>&);
+
   static bool getOverride(int, const char**, File&);
   static bool getDataLocation(int, const char**, Path&);
   static void applyOverrides(int, const char**);

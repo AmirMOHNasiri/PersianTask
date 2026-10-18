@@ -1,0 +1,609 @@
+////////////////////////////////////////////////////////////////////////////////
+//
+// Copyright 2026, AmirMOHNasiri.
+//
+// Part of PersianTask, released under the MIT license, like Taskwarrior.
+//
+// https://www.opensource.org/licenses/mit-license.php
+//
+////////////////////////////////////////////////////////////////////////////////
+
+#include <cmake.h>
+// cmake.h include header must come first
+
+#include <Context.h>
+#include <FS.h>
+#include <ScheduleTemplate.h>
+#include <format.h>
+#include <shared.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <map>
+#include <set>
+#include <sstream>
+
+namespace schedule {
+
+namespace {
+
+const std::vector<std::pair<std::string, Kind>> kinds{{"fixed", Kind::fixed},
+                                                      {"study", Kind::study},
+                                                      {"floating", Kind::floating},
+                                                      {"buffer", Kind::buffer},
+                                                      {"rest", Kind::rest}};
+
+const std::vector<std::string> settingNames{"estimate.factor", "unestimated.per-day", "fallback",
+                                            "borrow"};
+
+std::string lower(const std::string& input) {
+  std::string output = input;
+  std::transform(output.begin(), output.end(), output.begin(), ::tolower);
+  return output;
+}
+
+std::string trim(const std::string& input) {
+  auto first = input.find_first_not_of(" \t\r");
+  if (first == std::string::npos) return "";
+  auto last = input.find_last_not_of(" \t\r");
+  return input.substr(first, last - first + 1);
+}
+
+// The line without its comment, which starts at a # outside double quotes.
+std::string stripComment(const std::string& line) {
+  bool quoted = false;
+  for (size_t i = 0; i < line.length(); ++i) {
+    if (line[i] == '"')
+      quoted = !quoted;
+    else if (line[i] == '#' && !quoted)
+      return trim(line.substr(0, i));
+  }
+  return trim(line);
+}
+
+// Splits on whitespace, keeping double-quoted text together, without quotes.
+std::vector<std::string> tokenize(const std::string& line) {
+  std::vector<std::string> tokens;
+  std::string token;
+  bool quoted = false;
+  bool any = false;
+  for (auto c : line) {
+    if (c == '"') {
+      quoted = !quoted;
+      any = true;
+    } else if ((c == ' ' || c == '\t') && !quoted) {
+      if (any) tokens.push_back(token);
+      token.clear();
+      any = false;
+    } else {
+      token += c;
+      any = true;
+    }
+  }
+  if (any) tokens.push_back(token);
+  return tokens;
+}
+
+bool isName(const std::string& name) {
+  if (name.empty() || !isalnum(static_cast<unsigned char>(name[0]))) return false;
+  for (auto c : name)
+    if (!isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') return false;
+  return true;
+}
+
+bool isNumber(const std::string& input, double& value) {
+  char extra;
+  return sscanf(input.c_str(), "%lf%c", &value, &extra) == 1;
+}
+
+size_t distance(const std::string& a, const std::string& b) {
+  std::vector<size_t> row(b.length() + 1);
+  for (size_t j = 0; j <= b.length(); ++j) row[j] = j;
+  for (size_t i = 1; i <= a.length(); ++i) {
+    size_t diagonal = row[0];
+    row[0] = i;
+    for (size_t j = 1; j <= b.length(); ++j) {
+      size_t above = row[j];
+      row[j] = std::min({row[j] + 1, row[j - 1] + 1, diagonal + (a[i - 1] != b[j - 1])});
+      diagonal = above;
+    }
+  }
+  return row[b.length()];
+}
+
+// " (did you mean 'x'?)" if a candidate is close to the name.
+std::string suggest(const std::string& name, const std::vector<std::string>& candidates) {
+  std::string best;
+  size_t bestDistance = 3;
+  for (auto& candidate : candidates) {
+    auto d = distance(lower(name), lower(candidate));
+    if (d < bestDistance) {
+      best = candidate;
+      bestDistance = d;
+    }
+  }
+  return best.empty() ? "" : " (did you mean '" + best + "'?)";
+}
+
+int configTime(const std::string& name, int fallback) {
+  auto value = Context::getContext().config.get(name);
+  int minutes;
+  char extra;
+  int hours;
+  if (sscanf(value.c_str(), "%d:%d%c", &hours, &minutes, &extra) != 2 || hours < 0 ||
+      hours > 24 || minutes < 0 || minutes > 59 || (hours == 24 && minutes))
+    return fallback;
+  return hours * 60 + minutes;
+}
+
+}  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+std::string kindName(Kind kind) {
+  for (auto& k : kinds)
+    if (k.second == kind) return k.first;
+  return "";
+}
+
+////////////////////////////////////////////////////////////////////////////////
+int parseTime(const std::string& input) {
+  if (input == "wake") return Template::wake();
+  if (input == "sleep") return Template::sleep();
+
+  int hours, minutes;
+  char extra;
+  if (sscanf(input.c_str(), "%d:%d%c", &hours, &minutes, &extra) != 2) return -1;
+  if (input.find(':') > 2 || input.length() - input.find(':') != 3) return -1;
+  if (hours < 0 || minutes < 0 || minutes > 59 || hours > 24 || (hours == 24 && minutes))
+    return -1;
+
+  return hours * 60 + minutes;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+std::string formatTime(int minutes) {
+  char buffer[16];
+  snprintf(buffer, sizeof(buffer), "%02d:%02d", minutes / 60, minutes % 60);
+  return buffer;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+int parseDayName(const std::string& input) {
+  static const std::map<std::string, int> days{
+      {"shanbe", 6},       {"shanbeh", 6},       {"yekshanbe", 0},    {"yekshanbeh", 0},
+      {"doshanbe", 1},     {"doshanbeh", 1},     {"seshanbe", 2},     {"seshanbeh", 2},
+      {"sehshanbe", 2},    {"chaharshanbe", 3},  {"chaharshanbeh", 3}, {"charshanbe", 3},
+      {"panjshanbe", 4},   {"panjshanbeh", 4},   {"jome", 5},         {"jomeh", 5}};
+
+  auto day = days.find(lower(input));
+  return day == days.end() ? -1 : day->second;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+std::string Template::path() {
+  auto configured = Context::getContext().config.get("schedule.template");
+  if (configured.empty()) return (std::string)Context::getContext().data_dir + "/schedule";
+  return Path(configured)._data;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+int Template::wake() { return configTime("schedule.wake", 6 * 60); }
+
+////////////////////////////////////////////////////////////////////////////////
+int Template::sleep() { return configTime("schedule.sleep", 24 * 60); }
+
+////////////////////////////////////////////////////////////////////////////////
+bool Template::load() {
+  File file(path());
+  if (!file.exists()) return false;
+
+  std::string contents;
+  if (!File::read(path(), contents)) throw format("Could not read {1}.", path());
+
+  parse(contents);
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+void Template::parse(const std::string& contents) {
+  std::string section;
+  Mode* mode = nullptr;
+  int weekday = -1;
+
+  std::istringstream lines(contents);
+  std::string raw;
+  for (int number = 1; std::getline(lines, raw); ++number) {
+    auto line = stripComment(raw);
+    if (line.empty()) continue;
+
+    if (line[0] == '[') {
+      if (line.back() != ']') {
+        problem(number, "A section header must end with ']'.");
+        section = "";
+        continue;
+      }
+
+      section = lower(trim(line.substr(1, line.length() - 2)));
+      mode = nullptr;
+      weekday = parseDayName(section);
+
+      if (section.substr(0, 5) == "mode ") {
+        auto name = trim(section.substr(5));
+        if (!isName(name)) {
+          problem(number, format("'{1}' is not a valid mode name.", name));
+          section = "";
+          continue;
+        }
+        for (auto& existing : modes)
+          if (existing.name == name)
+            problem(number, format("Mode '{1}' is already defined on line {2}.", name,
+                                   existing.line));
+        modes.push_back(Mode{name, {}, "", {}, {}, number});
+        mode = &modes.back();
+        section = "mode";
+      } else if (section != "settings" && section != "categories" && weekday == -1) {
+        problem(number,
+                format("Unknown section '[{1}]'.  Sections are [settings], [categories], day "
+                       "names such as [shanbe], and [mode <name>].{2}",
+                       section,
+                       suggest(section, {"settings", "categories", "shanbe", "yekshanbe",
+                                         "doshanbe", "seshanbe", "chaharshanbe", "panjshanbe",
+                                         "jome"})));
+        section = "";
+      }
+      continue;
+    }
+
+    if (section == "settings")
+      parseSetting(line, number);
+    else if (section == "categories")
+      parseCategory(line, number);
+    else if (section == "mode")
+      parseModeLine(*mode, line, number);
+    else if (weekday != -1)
+      parseSlot(line, number, weekday);
+    else if (section.empty())
+      problem(number, "This line is not in a section, such as [settings] or [shanbe].");
+  }
+
+  validate();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+void Template::parseSetting(const std::string& line, int number) {
+  auto equals = line.find('=');
+  if (equals == std::string::npos) {
+    problem(number, "A setting must look like 'name = value'.");
+    return;
+  }
+
+  auto name = trim(line.substr(0, equals));
+  auto value = trim(line.substr(equals + 1));
+  double number_value;
+
+  if (name == "estimate.factor") {
+    if (!isNumber(value, number_value) || number_value <= 0)
+      problem(number, "estimate.factor must be a positive number, such as 1.5.");
+    else
+      estimateFactor = number_value;
+  } else if (name == "unestimated.per-day") {
+    if (!isNumber(value, number_value) || number_value < 1 ||
+        number_value != static_cast<int>(number_value))
+      problem(number, "unestimated.per-day must be a whole number of at least 1.");
+    else
+      unestimatedPerDay = static_cast<int>(number_value);
+  } else if (name == "fallback") {
+    fallback = tokenize(value);
+    for (auto& step : fallback) step = lower(step);
+    _fallbackLine = number;
+  } else if (name == "borrow") {
+    borrow = tokenize(value);
+    _borrowLine = number;
+  } else
+    problem(number, format("Unknown setting '{1}'.{2}", name, suggest(name, settingNames)));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// <name> <floor> <filter...>
+void Template::parseCategory(const std::string& line, int number) {
+  auto tokens = tokenize(line);
+  if (tokens.size() < 3) {
+    problem(number, "A category must look like '<name> <floor> <filter>', such as "
+                    "'os 4 project:os'.");
+    return;
+  }
+
+  Category category;
+  category.name = lower(tokens[0]);
+  category.line = number;
+
+  if (!isName(category.name) || category.name == "rest")
+    problem(number, format("'{1}' is not a valid category name.", tokens[0]));
+
+  if (tokens[1] != "-" && (!isNumber(tokens[1], category.floor) || category.floor < 0))
+    problem(number, format("The floor '{1}' must be a number of hours, or '-' for none.",
+                           tokens[1]));
+
+  // The filter is the rest of the line, as written.
+  auto rest = trim(line.substr(line.find(tokens[0]) + tokens[0].length()));
+  rest = trim(rest.substr(rest.find(tokens[1]) + tokens[1].length()));
+  if (rest.length() >= 2 && rest.front() == '"' && rest.back() == '"')
+    rest = rest.substr(1, rest.length() - 2);
+  category.filter = rest;
+
+  for (auto& existing : categories)
+    if (existing.name == category.name)
+      problem(number, format("Category '{1}' is already defined on line {2}.", category.name,
+                             existing.line));
+
+  categories.push_back(category);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// <start>-<end> <id> <kind> <category> [options]
+void Template::parseSlot(const std::string& line, int number, int weekday) {
+  auto tokens = tokenize(line);
+  if (tokens.size() < 4) {
+    problem(number, "A slot must look like '<start>-<end> <id> <kind> <category>', such as "
+                    "'08:00-10:00 sat-os study os'.");
+    return;
+  }
+
+  Slot slot;
+  slot.weekday = weekday;
+  slot.line = number;
+
+  auto dash = tokens[0].find('-');
+  slot.start = dash == std::string::npos ? -1 : parseTime(tokens[0].substr(0, dash));
+  slot.end = dash == std::string::npos ? -1 : parseTime(tokens[0].substr(dash + 1));
+  if (slot.start == -1 || slot.end == -1) {
+    problem(number, format("'{1}' is not a time range, such as 08:00-10:00 or 12:00-sleep.",
+                           tokens[0]));
+    return;
+  }
+  if (slot.end <= slot.start)
+    problem(number, format("The time range '{1}' ends before it starts.", tokens[0]));
+  else if (slot.start < wake() || slot.end > sleep())
+    problem(number, format("'{1}' is outside the day, which is {2}-{3} (schedule.wake and "
+                           "schedule.sleep).",
+                           tokens[0], formatTime(wake()), formatTime(sleep())));
+
+  slot.id = tokens[1];
+  bool digits = std::all_of(slot.id.begin(), slot.id.end(), ::isdigit);
+  if (!isName(slot.id) || digits)
+    problem(number, format("'{1}' is not a valid slot id.  Use letters, digits, '-' and '_', "
+                           "such as 'sat-os'.",
+                           slot.id));
+  for (auto& existing : slots)
+    if (existing.id == slot.id)
+      problem(number, format("Slot '{1}' is already defined on line {2}.", slot.id,
+                             existing.line));
+
+  auto kind = std::find_if(kinds.begin(), kinds.end(),
+                           [&](auto& k) { return k.first == lower(tokens[2]); });
+  if (kind == kinds.end()) {
+    std::vector<std::string> names;
+    for (auto& k : kinds) names.push_back(k.first);
+    problem(number, format("Unknown kind '{1}'.  Kinds are fixed, study, floating, buffer and "
+                           "rest.{2}",
+                           tokens[2], suggest(tokens[2], names)));
+  } else
+    slot.kind = kind->second;
+
+  slot.category = tokens[3] == "-" ? "" : lower(tokens[3]);
+
+  for (size_t i = 4; i < tokens.size(); ++i) {
+    auto& option = tokens[i];
+    if (option == "optional")
+      slot.optional = true;
+    else if (option == "protected")
+      slot.isProtected = true;
+    else if (option.substr(0, 7) == "filter:")
+      slot.filter = option.substr(7);
+    else if (option.substr(0, 9) == "fallback:") {
+      slot.fallback = tokenize(option.substr(9));
+      for (auto& name : slot.fallback) name = lower(name);
+      slot.hasFallback = true;
+    } else
+      problem(number, format("Unknown slot option '{1}'.  Options are filter:\"...\", "
+                             "fallback:\"...\", optional and protected.{2}",
+                             option,
+                             suggest(option, {"optional", "protected", "filter:", "fallback:"})));
+  }
+
+  if ((slot.kind == Kind::fixed || slot.kind == Kind::rest) &&
+      (!slot.filter.empty() || slot.hasFallback))
+    problem(number, format("A {1} slot never takes tasks, so it cannot have a filter or a "
+                           "fallback.",
+                           kindName(slot.kind)));
+
+  if ((slot.kind == Kind::study || slot.kind == Kind::floating) && slot.category.empty() &&
+      slot.filter.empty())
+    problem(number, format("A {1} slot needs a category or a filter.", kindName(slot.kind)));
+
+  slots.push_back(slot);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+void Template::parseModeLine(Mode& mode, const std::string& line, int number) {
+  auto equals = line.find('=');
+  if (equals == std::string::npos) {
+    problem(number, "A mode line must look like 'name = value'.");
+    return;
+  }
+
+  auto name = trim(line.substr(0, equals));
+  auto value = trim(line.substr(equals + 1));
+  if (name == "params")
+    mode.params = tokenize(value);
+  else if (name == "active")
+    mode.active = value;
+  else if (name == "give")
+    mode.gives.emplace_back(value, number);
+  else if (name == "floor")
+    mode.floors.emplace_back(value, number);
+  else
+    problem(number, format("Unknown mode setting '{1}'.  Use params, active, give or floor.{2}",
+                           name, suggest(name, {"params", "active", "give", "floor"})));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Checks what can only be checked once the whole file is read.
+void Template::validate() {
+  std::vector<std::string> categoryNames;
+  for (auto& category : categories) categoryNames.push_back(category.name);
+  std::vector<std::string> slotIds;
+  for (auto& slot : slots) slotIds.push_back(slot.id);
+
+  auto isCategory = [&](const std::string& name) {
+    return std::find(categoryNames.begin(), categoryNames.end(), name) != categoryNames.end();
+  };
+  auto isSlot = [&](const std::string& name) {
+    return std::find(slotIds.begin(), slotIds.end(), name) != slotIds.end();
+  };
+
+  auto checkChain = [&](const std::vector<std::string>& chain, int line,
+                        const std::string& what) {
+    for (size_t i = 0; i < chain.size(); ++i) {
+      if (chain[i] == "rest") {
+        if (i + 1 != chain.size())
+          problem(line, format("In {1}, 'rest' must come last, since it ends the chain.", what));
+      } else if (!isCategory(chain[i]))
+        problem(line, format("In {1}, '{2}' is not a category.{3}", what, chain[i],
+                             suggest(chain[i], categoryNames)));
+    }
+  };
+
+  checkChain(fallback, _fallbackLine, "the fallback setting");
+
+  for (auto& name : borrow)
+    if (!isCategory(name) && !isSlot(name)) {
+      auto names = categoryNames;
+      names.insert(names.end(), slotIds.begin(), slotIds.end());
+      problem(_borrowLine, format("In the borrow setting, '{1}' is not a slot or a category.{2}",
+                                   name, suggest(name, names)));
+    }
+
+  for (auto& category : categories)
+    if (category.filter.empty())
+      problem(category.line, format("Category '{1}' needs a filter.", category.name));
+
+  for (auto& slot : slots) {
+    if (!slot.category.empty() && !isCategory(slot.category))
+      problem(slot.line, format("Slot '{1}': '{2}' is not a category.{3}", slot.id,
+                                slot.category, suggest(slot.category, categoryNames)));
+    if (slot.hasFallback) checkChain(slot.fallback, slot.line, "the fallback option");
+  }
+
+  // Overlapping slots on the same day.
+  for (size_t i = 0; i < slots.size(); ++i)
+    for (size_t j = i + 1; j < slots.size(); ++j)
+      if (slots[i].weekday == slots[j].weekday && slots[i].start < slots[j].end &&
+          slots[j].start < slots[i].end)
+        problem(slots[j].line, format("Slot '{1}' overlaps slot '{2}' on line {3}.", slots[j].id,
+                                      slots[i].id, slots[i].line));
+
+  // Modes refer to categories, slots, kinds and their own params.
+  for (auto& mode : modes) {
+    auto isTarget = [&](const std::string& name) {
+      if (name.size() > 1 && name[0] == '$')
+        return std::find(mode.params.begin(), mode.params.end(), name.substr(1)) !=
+               mode.params.end();
+      return isCategory(name);
+    };
+    auto isSelector = [&](const std::string& name) {
+      if (name.substr(0, 5) == "kind:")
+        return std::any_of(kinds.begin(), kinds.end(),
+                           [&](auto& k) { return k.first == name.substr(5); });
+      return isCategory(name) || isSlot(name);
+    };
+
+    if (!mode.active.empty()) {
+      auto tokens = tokenize(mode.active);
+      bool before = tokens.size() == 3 && tokens[1] == "before" && tokens[0].size() > 1 &&
+                    tokens[0].back() == 'd' &&
+                    std::all_of(tokens[0].begin(), tokens[0].end() - 1, ::isdigit) &&
+                    isTarget(tokens[2]) && tokens[2][0] == '$';
+      bool until = tokens.size() == 2 && tokens[0] == "until" && isTarget(tokens[1]) &&
+                   tokens[1][0] == '$';
+      if (!before && !until)
+        problem(mode.line, format("Mode '{1}': active must look like '7d before $date' or "
+                                  "'until $end', using one of its params.",
+                                  mode.name));
+    }
+
+    // give = <selector> [N% | except N] -> <target>
+    for (auto& give : mode.gives) {
+      auto tokens = tokenize(give.first);
+      auto arrow = std::find(tokens.begin(), tokens.end(), "->");
+      bool valid = arrow != tokens.end() && arrow + 2 == tokens.end() &&
+                   (arrow - tokens.begin() == 1 ||
+                    (arrow - tokens.begin() == 2 && tokens[1].back() == '%') ||
+                    (arrow - tokens.begin() == 3 && tokens[1] == "except"));
+      if (!valid) {
+        problem(give.second, "A give rule must look like 'give = <slots> -> <category>', "
+                             "optionally with 50% or 'except 1' before the arrow.");
+        continue;
+      }
+      if (!isSelector(tokens[0]))
+        problem(give.second, format("'{1}' is not a category, slot or kind:<kind>.", tokens[0]));
+      if (!isTarget(tokens.back()))
+        problem(give.second,
+                format("'{1}' is not a category, or one of the mode's params such as $course.",
+                       tokens.back()));
+    }
+
+    // floor = <category> <hours>
+    for (auto& floor : mode.floors) {
+      auto tokens = tokenize(floor.first);
+      double hours;
+      if (tokens.size() != 2 || !isNumber(tokens[1], hours) || hours < 0)
+        problem(floor.second, "A floor rule must look like 'floor = <category> <hours>'.");
+      else if (!isTarget(tokens[0]))
+        problem(floor.second, format("'{1}' is not a category.", tokens[0]));
+    }
+  }
+
+  if (configTime("schedule.wake", -1) == -1)
+    problem(0, "The setting schedule.wake must be a time, such as 06:00.");
+  if (configTime("schedule.sleep", -1) == -1)
+    problem(0, "The setting schedule.sleep must be a time, such as 24:00.");
+
+  std::stable_sort(problems.begin(), problems.end(),
+                   [](auto& a, auto& b) { return a.line < b.line; });
+}
+
+////////////////////////////////////////////////////////////////////////////////
+void Template::problem(int line, const std::string& message) {
+  problems.push_back({line, message});
+}
+
+////////////////////////////////////////////////////////////////////////////////
+const Category* Template::category(const std::string& name) const {
+  for (auto& category : categories)
+    if (category.name == name) return &category;
+  return nullptr;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+const Slot* Template::slot(const std::string& id) const {
+  for (auto& slot : slots)
+    if (slot.id == id) return &slot;
+  return nullptr;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+std::string Template::filterFor(const Slot& slot) const {
+  if (!slot.filter.empty()) return slot.filter;
+  auto c = category(slot.category);
+  return c ? c->filter : "";
+}
+
+////////////////////////////////////////////////////////////////////////////////
+const std::vector<std::string>& Template::fallbackFor(const Slot& slot) const {
+  return slot.hasFallback ? slot.fallback : fallback;
+}
+
+}  // namespace schedule
+
+////////////////////////////////////////////////////////////////////////////////

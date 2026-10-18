@@ -914,6 +914,7 @@ bool Datetime::parse_named (Pig& pig)
   pig.restoreTo (checkpoint);
 
   if (initializeNow            (pig) ||
+      initializePersianDay     (pig) ||
       initializeYesterday      (pig) ||
       initializeToday          (pig) ||
       initializeTomorrow       (pig) ||
@@ -1621,6 +1622,47 @@ bool Datetime::initializeNow (Pig& pig)
   }
 
   pig.restoreTo (checkpoint);
+  return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Persian words for days relative to today, which must be written in full, so
+// that for example 'far' remains Farvardin, not farda.
+//
+// parirooz | diruz | emruz | farda | pasfarda  [ !<alpha> && !<digit> ]
+bool Datetime::initializePersianDay (Pig& pig)
+{
+  static const std::vector <std::pair <std::string, int>> words {
+    {"pariruz", -2}, {"parirooz", -2}, {"parirouz", -2},
+    {"diruz",   -1}, {"dirooz",   -1}, {"dirouz",   -1},
+    {"emruz",    0}, {"emrooz",    0}, {"emrouz",    0},
+    {"farda",    1},
+    {"pasfarda", 2}};
+
+  auto checkpoint = pig.cursor ();
+
+  for (auto& word : words)
+  {
+    if (pig.skipLiteral (word.first))
+    {
+      auto following = pig.peek ();
+      if (! unicodeLatinAlpha (following) &&
+          ! unicodeLatinDigit (following))
+      {
+        time_t now = time (nullptr);
+        struct tm* t = localtime (&now);
+
+        t->tm_mday += word.second;
+        t->tm_hour = t->tm_min = t->tm_sec = 0;
+        t->tm_isdst = -1;
+        _date = mktime (t);
+        return true;
+      }
+    }
+
+    pig.restoreTo (checkpoint);
+  }
+
   return false;
 }
 

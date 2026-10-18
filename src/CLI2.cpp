@@ -43,6 +43,7 @@
 
 // Overridden by rc.abbreviation.minimum.
 int CLI2::minimumMatchLength = 3;
+std::string (*CLI2::defaultCommandHook)(const std::vector<A2>&) = nullptr;
 
 // Alias expansion limit. Any more indicates some kind of error.
 static int safetyValveDefault = 10;
@@ -1808,7 +1809,9 @@ void CLI2::defaultCommand() {
     // Default command.
     if (!found_sequence) {
       // Apply overrides, if any.
-      std::string defaultCommand = Context::getContext().config.get("default.command");
+      std::string defaultCommand = defaultCommandHook
+                                       ? defaultCommandHook(_args)
+                                       : Context::getContext().config.get("default.command");
       if (defaultCommand != "") {
         // Modify _args, _original_args to be:
         //   <args0> [<def0> ...] <args1> [...]

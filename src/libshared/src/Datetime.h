@@ -148,6 +148,7 @@ private:
   bool parse_off_minute    (Pig&, int&);
 
   bool initializeNow            (Pig&);
+  bool initializePersianDay     (Pig&);
   bool initializeYesterday      (Pig&);
   bool initializeToday          (Pig&);
   bool initializeTomorrow       (Pig&);

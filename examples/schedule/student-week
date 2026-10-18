@@ -1,0 +1,104 @@
+# PersianTask weekly schedule: a university student's week.
+#
+# Each day lists its time slots, and each slot pulls a task from its category.
+# Edit it freely, then run 'task schedule check' to find mistakes.
+#
+#   task schedule help            Quick reference
+#   task schedule help template   This file's format
+#   docs/schedule.md              The full reference
+
+[settings]
+# Planned time for a task is its estimate times this factor.
+estimate.factor     = 1.5
+# How many slots a day a task with no estimate may fill.
+unestimated.per-day = 1
+# Where a slot looks when its own category has no pending task.
+fallback            = soon term ds arch rest
+# Where extra time comes from, when a task needs more than its slot.
+borrow              = fri-buffer arch wed-floating uptodate research
+
+[categories]
+# name      floor   filter
+#           (hours a week, or - for none)
+research    8       project:research
+ds          4       project:ds
+os          4       project:os
+algo        2.5     project:algo
+net         1.5     project:net
+db          1       project:db
+arch        1.5     project:arch
+uptodate    -       project:uptodate
+review      -       project:review
+soon        -       due.before:now+7d
+term        -       +term
+
+# Slots: time  id  kind  category  [options]
+#   kind:    fixed (a class), study, floating, buffer, or rest
+#   options: filter:"..."  fallback:"..."  optional  protected
+
+[shanbe]
+07:00-07:30   sat-review       study      review
+07:30-10:30   sat-research     study      research
+11:00-12:30   sat-ds           study      ds
+14:00-16:00   sat-os-hw        study      os         filter:"project:os +homework"
+21:00-21:45   sat-uptodate     study      uptodate   optional
+
+[yekshanbe]
+09:00-10:30   sun-db-class     fixed      db
+10:30-10:50   sun-db-notes     study      db
+13:30-15:00   sun-net-class    fixed      net
+15:00-15:45   sun-net-review   study      net
+15:45-16:20   sun-os-read      study      os         filter:"project:os +reading"
+16:30-18:00   sun-os-class     fixed      os
+21:30-22:15   sun-ds-light     study      ds         optional
+
+[doshanbe]
+07:30-10:30   mon-algo-class   fixed      algo
+11:00-16:00   mon-research     study      research
+18:00-19:30   mon-os-slides    study      os         filter:"project:os +slides"
+20:30-22:00   mon-arch         study      arch
+
+[seshanbe]
+09:00-10:30   tue-db-class     fixed      db
+10:30-10:50   tue-db-notes     study      db
+13:30-15:00   tue-net-class    fixed      net
+15:00-15:45   tue-net-review   study      net
+15:45-16:20   tue-ds           study      ds
+16:30-18:00   tue-os-class     fixed      os
+20:30-21:30   tue-db-slides    study      db         filter:"project:db +slides"
+
+[chaharshanbe]
+07:00-10:00   wed-research     study      research
+10:30-12:30   wed-os-hw        study      os         filter:"project:os +homework"
+14:00-15:30   wed-ds           study      ds
+16:00-17:30   wed-floating     floating   net        filter:"project:net +homework"
+21:00-21:45   wed-uptodate     study      uptodate   optional
+
+[panjshanbe]
+07:00-09:00   thu-ds           study      ds
+09:30-12:00   thu-algo         study      algo
+14:00-17:00   thu-research     study      research
+
+[jome]
+08:00-10:00   fri-arch         study      arch
+10:30-12:00   fri-buffer       buffer     -
+12:00-sleep   fri-rest         rest       -          protected
+
+# Modes change the week for a while, then end on their own.
+#   task schedule mode start exam os 1405-09-20
+#   task schedule mode start project 1405-10-15
+
+[mode exam]
+params = course date
+active = 7d before $date
+give   = arch -> $course
+give   = wed-floating -> $course
+give   = research 50% -> $course
+floor  = arch 0
+
+[mode project]
+params = end
+active = until $end
+give   = arch except 1 -> term
+give   = wed-floating -> term
+give   = fri-buffer -> term
