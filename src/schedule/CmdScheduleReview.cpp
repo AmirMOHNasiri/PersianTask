@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 #include <sstream>
 #include <tuple>
 
@@ -52,6 +53,8 @@ struct WeekReview {
   };
   std::vector<Buffer> buffers;
   bool bufferFull{false};
+
+  std::map<std::string, double> floors;  // Hours, after modes; -1 for none.
 };
 
 Datetime weeksBefore(const Datetime& day, int weeks) {
@@ -73,6 +76,8 @@ WeekReview reviewWeek(const Template& tmpl, const State& state, const Datetime& 
   Week week(tmpl, day, &state);
   review.start = week.start;
   review.finished = week.end() <= schedule::now();
+  for (auto& category : tmpl.categories)
+    review.floors[category.name] = week.floorOf(tmpl, category.name);
 
   // Planned: slot lengths after this week's changes.
   Planner planner(tmpl, week.reference());
@@ -99,15 +104,16 @@ WeekReview reviewWeek(const Template& tmpl, const State& state, const Datetime& 
     }
   }
 
-  // Each task counts for the first category, in template order, it matches.
-  std::map<std::string, std::string> categoryOf;
+  // Each task counts for one category, as Template::accountFor says.
+  std::map<std::string, std::set<std::string>> matches;  // Category, uuids.
   for (auto& category : tmpl.categories)
     for (auto& task : planner.evaluate(category.filter, worked))
-      categoryOf.emplace(task.get("uuid"), category.name);
+      matches[category.name].insert(task.get("uuid"));
 
   for (auto& entry : seconds) {
-    auto found = categoryOf.find(entry.first);
-    review.actual[found == categoryOf.end() ? "" : found->second] += entry.second;
+    auto category = tmpl.accountFor(
+        [&](const Category& c) { return matches[c.name].count(entry.first) > 0; });
+    review.actual[category] += entry.second;
     review.trackedTotal += entry.second;
   }
 
@@ -180,16 +186,18 @@ int CmdSchedule::review(std::vector<std::string> args, std::string& output) {
   setHeaderUnderline(table);
 
   for (auto& category : tmpl.categories) {
+    if (!category.accounting) continue;
     auto planned = review.planned[category.name];
     auto actual = review.actual[category.name];
-    if (!planned && !actual && category.floor < 0) continue;
+    auto floor = review.floors[category.name];
+    if (!planned && !actual && floor < 0) continue;
 
     auto row = table.addRow();
     table.set(row, 0, category.name);
     table.set(row, 1, hours(planned));
     table.set(row, 2, hours(actual));
-    table.set(row, 3, category.floor < 0 ? "-" : hours(static_cast<long>(category.floor * 3600)));
-    if (category.floor >= 0 && review.finished && actual < category.floor * 3600)
+    table.set(row, 3, floor < 0 ? "-" : hours(static_cast<long>(floor * 3600)));
+    if (floor >= 0 && review.finished && actual < floor * 3600)
       table.set(row, 4, "below its floor");
   }
   if (review.actual[""] > 0) {
@@ -215,14 +223,19 @@ int CmdSchedule::review(std::vector<std::string> args, std::string& output) {
 
   bool anyMissed = false;
   for (auto& category : tmpl.categories) {
-    if (category.floor <= 0) continue;
-    long floor = static_cast<long>(category.floor * 3600);
+    if (!category.accounting) continue;
+
+    // Modes may change a floor, so each week has its own.
+    long floorA = static_cast<long>(earlier.floors[category.name] * 3600);
+    long floorB = static_cast<long>(recent.floors[category.name] * 3600);
+    if (floorA <= 0 || floorB <= 0) continue;
+
     auto a = usePlanned ? earlier.planned[category.name] : earlier.actual[category.name];
     auto b = usePlanned ? recent.planned[category.name] : recent.actual[category.name];
-    if (a < floor && b < floor) {
+    if (a < floorA && b < floorB) {
       out << format("  {1} was below its floor of {2} two weeks running: {3} in week {4}, and {5} "
                     "in week {6}.\n",
-                    category.name, hours(floor), hours(a), earlier.start.week(), hours(b),
+                    category.name, hours(floorB), hours(a), earlier.start.week(), hours(b),
                     recent.start.week());
       anyMissed = true;
     }

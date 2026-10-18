@@ -901,7 +901,13 @@ def test_borrow(task):
 
 
 def test_write_guard(task):
-    """TDB2 refuses to write while a fake current time is active."""
+    """TDB2 refuses to write while a fake current time is active.  The switch
+    that forces one exists only in test builds (PERSIANTASK_TESTING)."""
+    if os.environ.get("PERSIANTASK_TESTING") != "1":
+        code, _, err = task.run(NOW, "rc.schedule.test.leak-now:on", "add", "Released")
+        check_true("The test-only switch is not in this build", code == 0, err)
+        return
+
     code, out, err = task.run(NOW, "rc.schedule.test.leak-now:on", "add", "Leaked")
     check_true("A write with a fake now fails", code != 0 and "Internal error" in err, err)
     check_true("The task was not written", "Leaked" not in task.run("all")[1])
@@ -1016,9 +1022,46 @@ def test_review_tracked(task):
         task.out(number, "stop")
 
     out = task.out("schedule", "review")
-    rows = {line.split()[0]: line.split()[1:] for line in out.splitlines() if line.split()}
+    rows = {line.split()[0]: line.split()[1:] for line in out[:out.index("Floors")].splitlines()
+            if line.split()}
     check("Tracked time counts for the task's category", rows.get("res", [""])[1:2], ["1min"])
     check_true("Tracked time with no category is listed", "(no category)" in out, out)
+
+
+def test_attribution(task):
+    """Hours count for subjects: the first matching category with a floor,
+    then one without, never one with accounting:off."""
+    write_template(task, """
+[categories]
+soon   -   due.before:now+7d
+os     2   project:os
+misc   1   +misc accounting:off
+other  -   +other
+
+[shanbe]
+08:00-10:00  sat-soon   study  soon
+10:00-11:00  sat-misc   study  misc
+11:00-12:00  sat-other  study  other
+""")
+    task.out("add", "OSHW", "project:os", "due:2026-10-19")
+    task.out("add", "Misc", "+misc")
+    task.out("add", "Other", "+other")
+
+    hours = planned(task.out(NOW, "schedule", "week"))
+    check("Planned hours count for the subject, not the fallback-style category", hours,
+          {"os": "2h", "other": "1h"})
+
+    for number in ("1", "2"):
+        task.out(number, "start")
+        task.out(number, "modify", "start:now-1min")
+        task.out(number, "stop")
+    out = task.out("schedule", "review")
+    rows = {line.split()[0]: line.split()[1:] for line in out[:out.index("Floors")].splitlines()
+            if line.split()}
+    check("Tracked hours count for the subject", rows.get("os", [""])[1:2], ["1min"])
+    check_true("A soon category gets no tracked hours", rows.get("soon", ["", "0h"])[1] == "0h", rows)
+    check_true("accounting:off keeps a category out of the hours",
+               "misc" not in rows and "(no category)" in out, out)
 
 
 def test_review_buffer(task):
@@ -1066,6 +1109,155 @@ def test_review_deadlines(task):
     check_true("Overdue deadlines are marked", "Overdue, overdue" in this, deadlines)
 
 
+MODES = """
+[settings]
+fallback = rest
+
+[categories]
+res   4     project:res
+arch  1.5   project:arch
+os    2     project:os
+term  -     +term
+float -     project:float
+
+[shanbe]
+13:00-14:00  sat-res    study     res
+14:00-15:00  sat-arch   study     arch
+15:00-16:00  sat-float  floating  float
+16:00-17:00  sat-fix    fixed     arch
+17:00-18:00  sat-prot   study     arch   protected
+
+[yekshanbe]
+13:00-14:00  sun-res    study     res
+14:00-15:00  sun-arch   study     arch
+
+[doshanbe]
+13:00-14:00  mon-res    study     res
+14:00-15:00  mon-arch   study     arch
+
+[mode exam]
+params = course date
+active = 7d before $date
+give   = arch -> $course
+give   = sat-float -> $course
+give   = res 50% -> $course
+floor  = arch 0
+
+[mode project]
+params = end
+active = until $end
+give   = arch except 1 -> term
+give   = sat-float -> term
+"""
+
+
+def mode_tasks(task):
+    for name, project in [("R1", "res"), ("A1", "arch"), ("A2", "arch")]:
+        task.out("add", name, "project:" + project)
+    for i in range(1, 6):
+        task.out("add", "O{}".format(i), "project:os")
+    for i in range(1, 4):
+        task.out("add", "T{}".format(i), "+term")
+
+
+def sources(output):
+    return {slot: found[2] for slot, found in slots(output).items()}
+
+
+def test_mode_exam(task):
+    write_template(task, MODES)
+    mode_tasks(task)
+
+    # The exam is on Doshanbe 27 Mehr: the mode covers Shanbe and Yekshanbe.
+    out = task.out(NOW, "schedule", "mode", "start", "exam", "os", "1405-07-27")
+    check_true("mode start says when it is active",
+               "from Doshanbe 20 Mehr 1405 to Yekshanbe 26 Mehr 1405" in out, out)
+
+    found = sources(task.out(NOW, "schedule", "week"))
+    check("A mode gives a category's slots in its window",
+          (found.get("sat-arch"), found.get("sun-arch")), ("os (exam)", "os (exam)"))
+    check("A mode gives a slot by id", found.get("sat-float"), "os (exam)")
+    check("A mode gives half of a category's slots, alternately",
+          (found.get("sat-res"), found.get("sun-res")), ("os (exam)", "res"))
+    check("A mode leaves slots outside its window alone",
+          (found.get("mon-res"), found.get("mon-arch")), ("res", "arch"))
+    check("A mode never gives fixed or protected slots",
+          (found.get("sat-fix"), found.get("sat-prot")), ("fixed", "arch"))
+    check_true("The week names the active mode",
+               "Mode: exam os 1405-07-27" in task.out(NOW, "schedule", "week"))
+
+    out = task.out(NOW, "schedule", "week", "next")
+    check_true("A mode ends on its own", "(exam)" not in out and "Mode:" not in out, out)
+
+    out = task.out(NOW, "schedule", "review")
+    rows = {line.split()[0]: line.split()[1:] for line in out[:out.index("Floors")].splitlines()
+            if line.split()}
+    check("A mode's floor applies to its weeks", rows.get("arch", ["", "", ""])[2], "0h")
+
+
+def test_mode_precedence(task):
+    """template -> modes -> this week's changes -> borrow."""
+    write_template(task, MODES)
+    mode_tasks(task)
+    task.out(NOW, "schedule", "mode", "start", "exam", "os", "1405-07-27")
+
+    task.out(NOW, "schedule", "assign", "sat-arch", "2")
+    task.out(NOW, "schedule", "skip", "sun-arch")
+    found = sources(task.out(NOW, "schedule", "week"))
+    check("An assignment wins over a mode", found.get("sat-arch"), "assigned")
+    check("A skip wins over a mode", found.get("sun-arch"), "rest, skipped")
+
+    task.out(NOW, "schedule", "mode", "start", "project", "1405-07-26")
+    found = sources(task.out(NOW, "schedule", "week"))
+    check("A mode started later wins over an earlier one", found.get("sat-float"), "term (project)")
+
+
+def test_mode_project(task):
+    write_template(task, MODES)
+    mode_tasks(task)
+
+    task.out(NOW, "schedule", "mode", "start", "project", "1405-07-26")
+    found = sources(task.out(NOW, "schedule", "week"))
+    check("'except 1' keeps the first slot", (found.get("sat-arch"), found.get("sun-arch")),
+          ("arch", "term (project)"))
+    check("The project mode gives the floating slot", found.get("sat-float"), "term (project)")
+    check("until $end includes the end day, and no more", found.get("mon-arch"), "arch")
+
+
+def test_mode_commands(task):
+    write_template(task, MODES)
+    mode_tasks(task)
+
+    out = task.out(NOW, "schedule", "mode", "list")
+    check_true("mode list shows the template's modes",
+               "exam <course> <date>, active 7d before $date" in out and "give arch -> $course" in out,
+               out)
+
+    task.out(NOW, "schedule", "mode", "start", "exam", "os", "1405-07-27")
+    task.out(NOW, "schedule", "mode", "start", "exam", "res", "1405-08-15")
+    out = task.out(NOW, "schedule", "mode", "list")
+    check_true("mode list shows started modes",
+               "m1, exam os 1405-07-27: active" in out and "m2, exam res 1405-08-15: upcoming" in out, out)
+
+    out = task.out(NOW, "schedule", "mode", "stop", "m2")
+    check_true("Stopping an upcoming mode removes it", "had not started" in out, out)
+    out = task.out(NOW, "schedule", "mode", "stop", "exam")
+    check_true("mode stop by name", "Stopped mode m1" in out, out)
+    check_true("A stopped mode no longer applies", "(exam)" not in task.out(NOW, "schedule", "week"))
+
+    task.out(NOW, "schedule", "undo")
+    check_true("undo restarts a stopped mode", "(exam)" in task.out(NOW, "schedule", "week"))
+
+    for args, text in [(["start", "holiday"], "no mode 'holiday'"),
+                       (["start", "exam", "os"], "Usage: task schedule mode start exam <course> <date>"),
+                       (["start", "exam", "maths", "1405-07-27"], "not a category"),
+                       (["start", "exam", "os", "someday-soon"], "not a date"),
+                       (["start", "exam", "os", "1405-07-01"], "already be over"),
+                       (["stop", "m9"], "no started mode")]:
+        code, out, err = task.run(NOW, "schedule", "mode", *args)
+        check_true("mode {} fails: {}".format(" ".join(args), text), code != 0 and text in err, err)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -1077,6 +1269,7 @@ if __name__ == "__main__":
                         test_time_reads, test_swap_durations, test_estimates, test_tracked_time,
                         test_estimates_from_now, test_estimate_uda, test_borrow,
                         test_write_guard, test_borrow_overshoot, test_small_estimates,
-                        test_review, test_review_tracked, test_review_buffer,
-                        test_review_deadlines,
+                        test_review, test_review_tracked, test_attribution, test_review_buffer,
+                        test_review_deadlines, test_mode_exam, test_mode_precedence,
+                        test_mode_project, test_mode_commands,
                         test_help], fresh=True))

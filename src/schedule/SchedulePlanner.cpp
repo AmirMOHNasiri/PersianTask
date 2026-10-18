@@ -90,6 +90,58 @@ Week::Week(const Template& tmpl, const Datetime& day, const State* state)
   }
 
   if (state) {
+    // Modes come before this week's changes.
+    for (auto& active : state->modes) {
+      if (!active.overlaps(start.toEpoch(), end().toEpoch())) continue;
+
+      auto mode = tmpl.mode(active.name);
+      if (!mode) {
+        notes.push_back(format("Mode '{1}' is ignored: it is no longer in the template.",
+                               active.name));
+        continue;
+      }
+
+      // $name stands for the value given for that param.
+      auto bind = [&](const std::string& name) -> std::string {
+        if (name.empty() || name[0] != '$') return name;
+        for (size_t i = 0; i < mode->params.size() && i < active.values.size(); ++i)
+          if (mode->params[i] == name.substr(1)) return active.values[i];
+        return "";
+      };
+
+      std::string values;
+      for (auto& value : active.values) values += (values.empty() ? "" : " ") + value;
+      modes.push_back(active.name + (values.empty() ? "" : " " + values));
+
+      for (auto& rule : mode->giveRules) {
+        // The slots the rule selects, within the mode's time.  Fixed, rest
+        // and protected slots are never given away.
+        std::vector<Instance*> selected;
+        for (auto& instance : instances) {
+          auto& slot = *instance.slot;
+          if (slot.kind == Kind::fixed || slot.kind == Kind::rest || slot.isProtected) continue;
+
+          bool matches = rule.selector.substr(0, 5) == "kind:"
+                             ? kindName(slot.kind) == rule.selector.substr(5)
+                             : slot.category == rule.selector || slot.id == rule.selector;
+          if (matches && active.activeAt(instance.day.toEpoch() + instance.start * 60))
+            selected.push_back(&instance);
+        }
+
+        // 'except N' keeps the first N; 'N%' gives every so often, spread out.
+        for (size_t i = 0; i < selected.size(); ++i) {
+          bool give = rule.except >= 0 ? i >= static_cast<size_t>(rule.except)
+                                       : static_cast<int>((i * rule.percent) % 100) < rule.percent;
+          if (give) {
+            selected[i]->modeCategory = bind(rule.target);
+            selected[i]->mode = active.name;
+          }
+        }
+      }
+
+      for (auto& rule : mode->floorRules) floors[bind(rule.category)] = rule.hours;
+    }
+
     // This week's changes.
     auto week = state->weeks.find(start.toEpoch());
     if (week != state->weeks.end()) {
@@ -151,6 +203,14 @@ Datetime Week::end() const {
   Datetime end = start;
   for (int i = 0; i < 7; ++i) ++end;
   return end.startOfDay();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+double Week::floorOf(const Template& tmpl, const std::string& name) const {
+  auto found = floors.find(name);
+  if (found != floors.end()) return found->second;
+  auto category = tmpl.category(name);
+  return category ? category->floor : -1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -300,9 +360,29 @@ std::optional<Task> Planner::pick(const std::string& filter, const Instance& ins
 ////////////////////////////////////////////////////////////////////////////////
 std::string Planner::categoryOf(const Task& task) {
   auto uuid = task.get("uuid");
-  for (auto& category : _template.categories)
+  return _template.accountFor([&](const Category& category) {
     for (auto& t : matching(category.filter))
-      if (t.get("uuid") == uuid) return category.name;
+      if (t.get("uuid") == uuid) return true;
+    return false;
+  });
+}
+
+////////////////////////////////////////////////////////////////////////////////
+std::string Planner::accountingCategory(const Assignment& assignment) {
+  if (!assignment.task) return "";
+
+  // A slot's own work counts for its category, if that is a subject with a
+  // floor.  Fallback-style categories, such as one for tasks due soon, do not
+  // say what the work is about.
+  if (assignment.source == Source::slot) {
+    auto category = _template.category(assignment.via);
+    if (category && category->accounting && category->floor >= 0) return category->name;
+  }
+
+  if (assignment.source == Source::slot || assignment.source == Source::fallback ||
+      assignment.source == Source::pinned || assignment.source == Source::borrowed)
+    return categoryOf(*assignment.task);
+
   return "";
 }
 
@@ -310,23 +390,7 @@ std::string Planner::categoryOf(const Task& task) {
 std::map<std::string, int> Planner::minutesByCategory(const std::vector<Assignment>& assignments) {
   std::map<std::string, int> minutes;
   for (auto& assignment : assignments) {
-    if (!assignment.task) continue;
-
-    std::string category;
-    switch (assignment.source) {
-      case Source::slot:
-        category = assignment.instance->slot->category;
-        break;
-      case Source::fallback:
-        category = assignment.via;
-        break;
-      case Source::pinned:
-      case Source::borrowed:
-        category = categoryOf(*assignment.task);
-        break;
-      default:
-        break;
-    }
+    auto category = accountingCategory(assignment);
     if (!category.empty()) minutes[category] += assignment.instance->minutes();
   }
   return minutes;
@@ -386,13 +450,21 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     auto& instance = *assignment.instance;
     if (!takesTasks(instance) || instance.skipped || assignment.task) continue;
 
+    // A mode may have given the slot to another category.
+    auto category = instance.slot->category;
     auto filter = _template.filterFor(*instance.slot);
+    if (!instance.modeCategory.empty()) {
+      auto given = _template.category(instance.modeCategory);
+      category = instance.modeCategory;
+      filter = given ? given->filter : "";
+    }
     if (filter.empty()) continue;
 
     assignment.task = pick(filter, instance);
     if (assignment.task) {
       assignment.source = Source::slot;
-      assignment.via = instance.slot->category;
+      assignment.via = category;
+      assignment.mode = instance.mode;
     }
   }
 

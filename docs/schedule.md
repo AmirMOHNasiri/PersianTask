@@ -8,6 +8,7 @@ PersianTask can plan your week. You describe a typical week once, as a template 
 - [Estimates](#estimates)
 - [Borrowing time](#borrowing-time)
 - [The weekly review](#the-weekly-review)
+- [Modes](#modes)
 - [Changing one week](#changing-one-week)
 - [Where the schedule is stored](#where-the-schedule-is-stored)
 - [The template file](#the-template-file)
@@ -50,7 +51,22 @@ Only pending tasks are scheduled: not waiting tasks, and not tasks blocked by a 
 
 The schedule ignores the active Taskwarrior context (`task context`): slots always pull from all your tasks.
 
-Under the week, `Planned:` gives the hours of work planned for each category: the length of every slot that got a task, after this week's changes (so a swapped slot counts with its new length). A slot counts for the category its task came from: the slot's own category, the fallback step that found the task, or, for an assigned or borrowed task, the first category whose filter the task matches. Fixed slots, events and free slots do not count.
+Under the week, `Planned:` gives the hours of work planned for each category: the length of every slot that got a task, after this week's changes (so a swapped slot counts with its new length). Fixed slots, events and free slots do not count.
+
+### Which category hours count for
+
+Some categories are subjects, such as `os` or `research`; others only help pick tasks, such as `soon` (tasks due soon) or `term` (tasks tagged `+term`). Hours, planned and tracked alike, count for subjects:
+
+1. A slot's own work counts for the slot's category, if that category has a floor.
+2. Otherwise (fallback work, assigned and borrowed tasks, slots whose category has no floor, and all tracked time), the hours count for the task: for the first category, in template order, **with a floor** whose filter the task matches.
+3. If no category with a floor matches, for the first matching category without one.
+4. If none matches, the review shows the time as `(no category)`.
+
+So listing `soon` before `os` in the template does not book OS homework under `soon`. To keep a category out of the hours entirely, add `accounting:off` at the end of its line:
+
+```
+soon   -   due.before:now+7d   accounting:off
+```
 
 ### Relative dates in filters
 
@@ -273,12 +289,47 @@ task schedule review last
 
 A look back at a week, and ahead at the next one. It shows, in order:
 
-1. **Hours per category**: planned, tracked, and the floor. Planned hours are those of the [`Planned:` line](#how-a-slot-gets-its-task), using each slot's length after the week's changes. Tracked hours are the time tracked with `task start` and `task stop` during that week, on any task, including tasks finished since; a task counts for the first category, in template order, whose filter it matches, and tracked time matching no category shows as `(no category)`. In a finished week, categories under their floor are marked.
+1. **Hours per category**: planned, tracked, and the floor. Planned hours are those of the [`Planned:` line](#how-a-slot-gets-its-task), using each slot's length after the week's changes. Tracked hours are the time tracked with `task start` and `task stop` during that week, on any task, including tasks finished since, counted for categories as [above](#which-category-hours-count-for). In a finished week, categories under their floor are marked. Floors are those of the week, after any [mode](#modes).
 2. **Floors**: the categories below their floor two weeks running. Those are the last two finished weeks: for the current week, which is not over yet, the two weeks before it. If no time at all was tracked in those weeks, floors are checked against planned hours instead, and the review says so.
 3. **The buffer**: what each `buffer` slot was used for. A buffer is *full* when all its slots were lent with `borrow` or assigned with `assign`, which is the sign of work overflowing the plan; ordinary fallback work does not count. If it was full two weeks running, the plan is too heavy, and the review suggests fewer slots of the first category the template borrows from after the buffer (`arch` in the example).
 4. **Deadlines**: pending tasks due this week and next week, with overdue ones marked.
 
 Planned hours of past weeks are computed from your tasks as they are today, since the schedule keeps changes, not past plans.
+
+## Modes
+
+```
+task schedule mode start exam os 1405-09-20
+task schedule mode start project 1405-10-15
+task schedule mode list
+task schedule mode stop m1
+```
+
+A mode changes the week for a while: exam season gives architecture and part of research to the course being examined, and a project phase gives spare time to the project. Modes are defined in the template (see [\[mode name\]](#mode-name)); the example has two:
+
+```
+[mode exam]
+params = course date
+active = 7d before $date
+give   = arch -> $course
+give   = wed-floating -> $course
+give   = research 50% -> $course
+floor  = arch 0
+
+[mode project]
+params = end
+active = until $end
+give   = arch except 1 -> term
+give   = wed-floating -> term
+give   = fri-buffer -> term
+```
+
+`task schedule mode start exam os 1405-09-20` gives values to the params, in order: in the seven days before the OS exam on 20 Azar, the architecture slots, the floating slot and every other research slot work on `os`, and architecture has no floor. The mode then ends on its own. Slots given by a mode show it, as in `os (exam)`, and the week lists the active modes.
+
+- `mode start` checks the values: dates must be dates, and categories categories. A mode whose time is already over is refused; one in the future starts on its own.
+- `mode stop` ends a mode now, by its id (`m1`) or name; a mode that has not started yet is removed. Like every change, starting and stopping can be undone with `task schedule undo`.
+- `mode list` shows the template's modes and the started ones.
+- If two active modes give the same slot, the one started later wins. Changes made for one week (swap, move, skip, assign) win over modes.
 
 ## Changing one week
 
@@ -298,7 +349,7 @@ A slot is named by its id, such as `sat-ds`, or by its number in `task schedule 
 The week you see is built in layers, each of which can change the one before:
 
 1. **The template**: the slots and their categories.
-2. **Modes**, such as exam season. *(Coming in a later version.)*
+2. **[Modes](#modes)**, such as exam season, which give slots to other categories for a while.
 3. **This week's changes**: move, swap, skip and assign. A change made for a week always wins over the template and over modes.
 4. **Borrowing**, which gives a task extra time from other slots. It never takes a slot changed by hand.
 
@@ -359,6 +410,7 @@ One category per line: a name, a floor, and a filter.
 
 - The **name** is used by slots, fallback chains, borrowing and modes. It uses letters, digits, `-` and `_`.
 - The **floor** is the minimum number of hours a week the category should get, or `-` for none. [Borrowing](#borrowing-time) never takes a category below its floor.
+- `accounting:off` at the end of the line keeps the category out of [the hours](#which-category-hours-count-for) and the review.
 - The **filter** is the rest of the line, written exactly as on the Taskwarrior command line: `project:os`, `+term`, `project:os +homework`, `due.before:now+7d`, `description.has:"two words"`, and so on. In a filter, `now` means the time of the week being planned (see [Relative dates in filters](#relative-dates-in-filters)).
 
 ### Days: [shanbe] to [jome]
@@ -394,9 +446,7 @@ Fixed and rest slots never take tasks, so they cannot have `filter:` or `fallbac
 
 ### [mode name]
 
-*Modes are checked now, and will be applied in a later version.*
-
-A mode is a temporary change to the week, such as exam season, which starts when you ask and ends on its own.
+A mode is a temporary change to the week, such as exam season, which starts when you ask and ends on its own. See [Modes](#modes) for how to use them.
 
 ```
 [mode exam]
@@ -415,10 +465,10 @@ give   = arch except 1 -> term
 
 | Line | Meaning |
 |---|---|
-| `params` | Names for the values given when starting the mode, used as `$name`. |
-| `active` | When the mode applies: `<N>d before $param` (the N days before a date) or `until $param`. |
-| `give` | `<slots> [N% \| except N] -> <category>`: those slots work on another category. `<slots>` is a category name (all its slots), a slot id, or `kind:<kind>`. `50%` gives half of them, and `except 1` all but one. |
-| `floor` | `<category> <hours>`: a different floor while the mode is active. |
+| `params` | Names for the values given when starting the mode, used as `$name`. A param used in `active` is a date; one used as a `give` target or in a `floor` is a category. |
+| `active` | When the mode applies: `<N>d before $param` (the N days before that date, not the date itself), or `until $param` (from the day it is started to the end of that date). Without `active`, the mode applies from the day it is started until it is stopped. |
+| `give` | `<slots> [N% \| except N] -> <category>`: those slots work on another category while the mode is active. `<slots>` is a category name (its slots), a slot id, or `kind:<kind>`. `50%` gives every other one, spread over the time, and `except 1` all but the first in the week. Fixed, rest and protected slots are never given. |
+| `floor` | `<category> <hours>`: a different floor, in any week the mode is active. |
 
 ## Settings
 

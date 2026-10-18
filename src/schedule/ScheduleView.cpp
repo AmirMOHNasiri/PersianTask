@@ -155,7 +155,8 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
         from = "borrowed";
         break;
       case Source::slot:
-        from = slot.category.empty() ? "filter" : slot.category;
+        from = assignment.via.empty() ? "filter" : assignment.via;
+        if (!assignment.mode.empty()) from += " (" + assignment.mode + ")";
         break;
       case Source::fallback:
         from = assignment.via + " (fallback)";
@@ -209,6 +210,7 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
 ////////////////////////////////////////////////////////////////////////////////
 std::string renderNotes(const Week& week, const Planner& planner) {
   std::stringstream out;
+  for (auto& mode : week.modes) out << "Mode: " << mode << '\n';
   for (auto& note : week.notes) out << "Note: " << note << '\n';
   for (auto& note : planner.notes) out << "Note: " << note << '\n';
   return out.str();

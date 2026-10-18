@@ -31,6 +31,7 @@ struct Category {
   std::string name;
   double floor{-1};  // Hours a week, or -1 for none.
   std::string filter;
+  bool accounting{true};  // False with 'accounting:off': never counts hours.
   int line{0};
 };
 
@@ -59,6 +60,28 @@ struct Mode {
   std::vector<std::pair<std::string, int>> gives;   // Rule, line.
   std::vector<std::pair<std::string, int>> floors;  // Rule, line.
   int line{0};
+
+  // Parsed by Template::validate, when valid.
+  enum class Active { always, before, until };
+  Active activeKind{Active::always};
+  int activeDays{0};
+  std::string activeParam;  // Without the $.
+
+  // give = <selector> [N% | except N] -> <target>
+  struct Give {
+    std::string selector;  // Category, slot id, or kind:<kind>.
+    int percent{100};
+    int except{-1};
+    std::string target;  // Category, or $param.
+  };
+  std::vector<Give> giveRules;
+
+  // floor = <category> <hours>
+  struct Floor {
+    std::string category;  // Category, or $param.
+    double hours{0};
+  };
+  std::vector<Floor> floorRules;
 };
 
 // The weekly schedule template: a hand-written text file, documented in
@@ -75,6 +98,18 @@ class Template {
   void parse(const std::string&);
 
   const Category* category(const std::string&) const;
+  const Mode* mode(const std::string&) const;
+
+  // The category that a task's hours count for, given which categories it
+  // matches: the first one, in template order, with a floor, or else the
+  // first one without, skipping those with accounting:off.  Empty if none.
+  template <typename Matches>
+  std::string accountFor(Matches matches) const {
+    for (bool floored : {true, false})
+      for (auto& c : categories)
+        if (c.accounting && (c.floor >= 0) == floored && matches(c)) return c.name;
+    return "";
+  }
   const Slot* slot(const std::string&) const;
   std::string filterFor(const Slot&) const;
   const std::vector<std::string>& fallbackFor(const Slot&) const;

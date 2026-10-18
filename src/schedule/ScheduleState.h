@@ -45,6 +45,18 @@ struct Event {
   int end{0};
 };
 
+// A mode started with 'task schedule mode start'.
+struct ActiveMode {
+  int id{0};
+  std::string name;
+  std::vector<std::string> values;  // In the order of the mode's params.
+  time_t from{0};
+  time_t to{0};  // 0 until stopped.
+
+  bool activeAt(time_t when) const { return from <= when && (!to || when < to); }
+  bool overlaps(time_t start, time_t end) const { return from < end && (!to || start < to); }
+};
+
 // A change, as listed by 'task schedule log'.
 struct LogEntry {
   time_t when{0};
@@ -61,6 +73,7 @@ class State {
   // The week is identified by the midnight that starts it.
   std::map<time_t, std::map<std::string, Override>> weeks;
   std::vector<Event> events;
+  std::vector<ActiveMode> modes;  // In the order they were started.
 
   static std::string statePath();
   static std::string undoPath();

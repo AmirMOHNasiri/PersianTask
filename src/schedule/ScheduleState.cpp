@@ -120,6 +120,7 @@ std::string State::undoPath() { return dataPath("schedule.undo.json"); }
 void State::load() {
   weeks.clear();
   events.clear();
+  modes.clear();
   if (!File(statePath()).exists()) return;
 
   std::string contents;
@@ -173,7 +174,18 @@ std::string State::toJSON() const {
                   e.id, quote(e.title), quote(isoDate(e.day)), quote(formatTime(e.start)),
                   quote(formatTime(e.end)));
   }
-  out << (events.empty() ? "" : "\n  ") << "]\n}\n";
+  out << (events.empty() ? "" : "\n  ") << "],\n  \"modes\": [";
+
+  for (size_t i = 0; i < modes.size(); ++i) {
+    auto& m = modes[i];
+    std::string values;
+    for (auto& value : m.values) values += (values.empty() ? "" : ", ") + quote(value);
+    out << (i ? ",\n" : "\n")
+        << format("    {\"id\": {1}, \"name\": {2}, \"values\": [{3}], \"from\": {4}, "
+                  "\"to\": {5}}",
+                  m.id, quote(m.name), values, m.from, m.to);
+  }
+  out << (modes.empty() ? "" : "\n  ") << "]\n}\n";
   return out.str();
 }
 
@@ -181,6 +193,7 @@ std::string State::toJSON() const {
 void State::fromJSON(const std::string& contents) {
   weeks.clear();
   events.clear();
+  modes.clear();
 
   auto root = parse(contents, statePath());
 
@@ -220,6 +233,23 @@ void State::fromJSON(const std::string& contents) {
       events.push_back(e);
     }
   }
+
+  auto modeList = member(root.get(), "modes");
+  if (modeList && modeList->type() == json::j_array) {
+    for (auto value : static_cast<json::array*>(modeList)->_data) {
+      ActiveMode m;
+      m.id = static_cast<int>(number(value, "id"));
+      m.name = text(value, "name");
+      m.from = static_cast<time_t>(number(value, "from"));
+      m.to = static_cast<time_t>(number(value, "to"));
+      auto values = member(value, "values");
+      if (values && values->type() == json::j_array)
+        for (auto v : static_cast<json::array*>(values)->_data)
+          if (v->type() == json::j_string)
+            m.values.push_back(json::decode(static_cast<json::string*>(v)->_data));
+      modes.push_back(m);
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -240,6 +270,8 @@ void State::prune(time_t before) {
     i = i->first < before ? weeks.erase(i) : std::next(i);
 
   for (auto i = events.begin(); i != events.end();) i = i->day < before ? events.erase(i) : i + 1;
+  for (auto i = modes.begin(); i != modes.end();)
+    i = i->to && i->to < before ? modes.erase(i) : i + 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

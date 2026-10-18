@@ -75,11 +75,12 @@ void schedule::initialize(CLI2& cli) {
 
   CLI2::defaultCommandHook = defaultCommand;
 
-  // Test-only: keeps a fake current time active for the whole command, to
-  // prove that TDB2 refuses to write then.  Not for users, and not
-  // documented.
+#ifdef PERSIANTASK_TESTING
+  // Test builds only: keeps a fake current time active for the whole
+  // command, to prove that TDB2 refuses to write then.
   if (config.getBoolean("schedule.test.leak-now"))
     Datetime::currentTimeOverride = schedule::now().toEpoch();
+#endif
 
   // 'task tasks' is the usual task list, whatever default.command says.
   if (!config.has("alias.tasks")) {
@@ -154,6 +155,7 @@ int CmdSchedule::execute(std::string& output) {
   if (name == "reset") return reset(args, output);
   if (name == "borrow") return borrow(args, output);
   if (name == "review") return review(args, output);
+  if (name == "mode") return mode(args, output);
   if (name == "event") return event(args, output);
   if (name == "undo") {
     if (!args.empty()) throw usage();

@@ -152,6 +152,7 @@ Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project              te
 | `task schedule reset <slot \| week>` | Undoes this week's changes |
 | `task schedule borrow <task> <hours>` | Gives a task more time this week, from the slots the template allows |
 | `task schedule review [last]` | Weekly review: planned and tracked hours, floors, the buffer, deadlines |
+| `task schedule mode start <name> ...` | A mode, such as exam season, that changes the week for a while |
 | `task schedule event add <title> <date> <HH:MM-HH:MM>` | A one-time appointment |
 | `task schedule undo` / `task schedule log` | Undoes schedule changes, or lists them |
 | `task schedule help [<command> \| template]` | Built-in help |
@@ -169,7 +170,7 @@ Give tasks an estimate, such as `task add Paper project:research estimate:4h`, a
 
 Once a week, `task schedule review` compares planned and tracked hours per category, warns about categories below their weekly floor two weeks running and about a buffer that keeps filling up, and lists the deadlines of this week and the next.
 
-Temporary modes, such as exam season, are coming in the next version.
+For exam season, `task schedule mode start exam os 1405-09-20` gives the week before the exam more OS time, as the template's `exam` mode says, and ends on its own after the exam.
 
 The full reference, with the template format and a worked example, is in [docs/schedule.md](../docs/schedule.md). To keep plain `task` as it was, run `task config schedule.default off`.
 

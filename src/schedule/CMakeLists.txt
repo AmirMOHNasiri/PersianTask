@@ -26,5 +26,12 @@ set (schedule_SRCS CmdSchedule.cpp       CmdSchedule.h
                    ScheduleTemplate.cpp  ScheduleTemplate.h
                    ScheduleView.cpp      ScheduleView.h)
 
+# Test-only switches, such as schedule.test.leak-now, exist only in test
+# builds.  persiantask/build-and-test.sh turns this on; packages do not.
+option (PERSIANTASK_TESTING "Build the PersianTask test-only switches into task" OFF)
+
 add_library (schedule STATIC ${schedule_SRCS})
+if (PERSIANTASK_TESTING)
+  target_compile_definitions (schedule PRIVATE PERSIANTASK_TESTING)
+endif (PERSIANTASK_TESTING)
 target_link_libraries(schedule taskchampion-cpp)

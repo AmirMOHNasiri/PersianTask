@@ -100,6 +100,15 @@ const std::vector<HelpEntry>& helpEntries() {
        "floor.  Shows which slots were taken; 'task schedule undo' gives them back.",
        {"task schedule borrow 12 2", "task schedule borrow 12 1.5h next"}},
 
+      {"mode", "[list] | start <name> <values...> | stop <m<N> | name>",
+       "Modes, such as exam season, which change the week for a while",
+       "A mode is defined in the template: which slots it gives to which category,\n"
+       "and which floors it changes, while it is active.  Starting it gives values to\n"
+       "its params, such as the course and the exam date, and it ends on its own.\n"
+       "Changes made for one week (swap, skip, assign...) still win over a mode.",
+       {"task schedule mode start exam os 1405-09-20", "task schedule mode list",
+        "task schedule mode stop m1"}},
+
       {"reset", "<slot | week> [next | prev | week:<date>]",
        "Undoes this week's changes to a slot, or to the whole week",
        "The slot goes back to its place and work in the template.  If it was swapped,\n"

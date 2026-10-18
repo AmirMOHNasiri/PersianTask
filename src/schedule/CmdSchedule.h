@@ -36,6 +36,7 @@ class CmdSchedule : public Command {
   int assign(std::vector<std::string>, std::string&);
   int reset(std::vector<std::string>, std::string&);
   int borrow(std::vector<std::string>, std::string&);
+  int mode(std::vector<std::string>, std::string&);
 
   // The weekly review, in CmdScheduleReview.cpp.
   int review(std::vector<std::string>, std::string&);

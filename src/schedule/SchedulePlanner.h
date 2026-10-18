@@ -66,6 +66,10 @@ struct Instance {
   int start{0};
   int end{0};
 
+  // A mode can give the slot's time to another category.
+  std::string modeCategory;
+  std::string mode;
+
   bool moved{false};
   bool skipped{false};
   std::string pinnedTask;  // UUID.
@@ -101,6 +105,13 @@ class Week {
   // Changes in the state that refer to slots no longer in the template.
   std::vector<std::string> notes;
 
+  // The modes active during the week, and the floors they set.
+  std::vector<std::string> modes;
+  std::map<std::string, double> floors;
+
+  // A category's floor in hours this week, or -1 for none.
+  double floorOf(const Template&, const std::string& category) const;
+
  private:
   std::deque<Slot> _eventSlots;
 };
@@ -130,7 +141,8 @@ struct Assignment {
   const Instance* instance{nullptr};
   std::optional<Task> task;
   Source source{Source::none};
-  std::string via;  // The category, for slot and fallback.
+  std::string via;   // The category, for slot and fallback.
+  std::string mode;  // The mode that gave the slot to that category, if any.
 };
 
 // Chooses a task for each slot of a week.  First each slot takes the most
@@ -159,9 +171,12 @@ class Planner {
   // week's changes.  Fixed slots, events and free slots do not count.
   std::map<std::string, int> minutesByCategory(const std::vector<Assignment>&);
 
-  // The category of a task: the first category, in template order, whose
-  // filter it matches, or an empty string.
+  // The category a task's hours count for (see Template::accountFor).
   std::string categoryOf(const Task&);
+
+  // The category an assignment's hours count for: the slot's own category
+  // for its own work if it has a floor, and otherwise the task's.
+  std::string accountingCategory(const Assignment&);
 
  private:
   std::optional<Task> pick(const std::string& filter, const Instance&);

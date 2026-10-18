@@ -396,16 +396,17 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
     std::string category;
     if (assignment != assignments.end() && assignment->task) {
       if (assignment->task->get("uuid") == uuid) continue;  // Already this task's.
-      category = assignment->source == Source::fallback ? assignment->via : slot.category;
+      category = planner.accountingCategory(*assignment);
     }
     eligible.push_back({instance, category});
   }
 
   // A category lends only as long as it stays at or above its floor.
+  // Modes may change floors for the week.
   auto keepsFloor = [&](const Candidate& c) {
-    auto category = change.tmpl.category(c.category);
-    return !category || category->floor < 0 ||
-           minutes[c.category] - c.instance->minutes() >= category->floor * 60;
+    auto floor = week.floorOf(change.tmpl, c.category);
+    return c.category.empty() || floor < 0 ||
+           minutes[c.category] - c.instance->minutes() >= floor * 60;
   };
 
   auto key = week.start.toEpoch();
@@ -480,6 +481,164 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
   out << "'task schedule undo' gives the time back.\n";
   output = out.str();
   return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+namespace {
+
+std::string describeWindow(const ActiveMode& mode) {
+  auto from = Datetime(mode.from).toString("A d B Y");
+  if (!mode.to) return "from " + from + ", until stopped";
+  return "from " + from + " to " + Datetime(mode.to - 1).toString("A d B Y");
+}
+
+std::string describeMode(const ActiveMode& mode) {
+  std::string values;
+  for (auto& value : mode.values) values += " " + value;
+  return format("m{1}, {2}{3}", mode.id, mode.name, values);
+}
+
+}  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+// mode [list] | mode start <name> <values...> | mode stop <m<N> | name>
+int CmdSchedule::mode(std::vector<std::string> args, std::string& output) {
+  auto sub = args.empty() ? "list" : args[0];
+  auto now = schedule::now();
+
+  if (sub == "list" && args.size() <= 1) {
+    Template tmpl;
+    loadValidTemplate(tmpl);
+    State state;
+    state.load();
+
+    std::stringstream out;
+    if (tmpl.modes.empty())
+      out << "The template defines no modes.  See 'task schedule help template'.\n";
+    else {
+      out << "Modes in the template:\n";
+      for (auto& mode : tmpl.modes) {
+        out << "  " << mode.name;
+        for (auto& param : mode.params) out << " <" << param << ">";
+        out << (mode.active.empty() ? "" : ", active " + mode.active) << '\n';
+        for (auto& give : mode.gives) out << "      give " << give.first << '\n';
+        for (auto& floor : mode.floors) out << "      floor " << floor.first << '\n';
+      }
+    }
+
+    if (!state.modes.empty()) {
+      out << "\nStarted:\n";
+      for (auto& mode : state.modes) {
+        auto when = mode.to && mode.to <= now.toEpoch() ? "ended"
+                    : mode.from > now.toEpoch()          ? "upcoming"
+                                                         : "active";
+        out << format("  {1}: {2}, {3}\n", describeMode(mode), when, describeWindow(mode));
+      }
+    }
+    out << "\nStart one with 'task schedule mode start <name> <values>'.\n";
+    output = out.str();
+    return 0;
+  }
+
+  if (sub == "start" && args.size() >= 2) {
+    Change change;
+    auto mode = change.tmpl.mode(args[1]);
+    if (!mode) {
+      std::vector<std::string> names;
+      for (auto& m : change.tmpl.modes) names.push_back(m.name);
+      throw format("The template has no mode '{1}'.  Its modes are: {2}.", args[1],
+                   names.empty() ? "none" : join(", ", names));
+    }
+
+    std::vector<std::string> values(args.begin() + 2, args.end());
+    std::string params;
+    for (auto& param : mode->params) params += " <" + param + ">";
+    if (values.size() != mode->params.size())
+      throw format("Usage: task schedule mode start {1}{2}", mode->name, params);
+
+    // A param used by 'active' is a date; one that gets slots or a floor is
+    // a category.
+    Datetime date;
+    for (size_t i = 0; i < mode->params.size(); ++i) {
+      auto& param = mode->params[i];
+      if (param == mode->activeParam) {
+        if (!parseDay(values[i], date))
+          throw format("'{1}' is not a date, for <{2}>.", values[i], param);
+      }
+
+      bool category = false;
+      for (auto& give : mode->giveRules) category = category || give.target == "$" + param;
+      for (auto& floor : mode->floorRules) category = category || floor.category == "$" + param;
+      if (category && !change.tmpl.category(values[i]))
+        throw format("'{1}' is not a category, for <{2}>.", values[i], param);
+    }
+
+    ActiveMode active;
+    active.name = mode->name;
+    active.values = values;
+    switch (mode->activeKind) {
+      case Mode::Active::before: {
+        Datetime from = date.startOfDay();
+        for (int i = 0; i < mode->activeDays; ++i) --from;
+        active.from = from.startOfDay().toEpoch();
+        active.to = date.startOfDay().toEpoch();
+        break;
+      }
+      case Mode::Active::until: {
+        Datetime after = date.startOfDay();
+        ++after;
+        active.from = now.startOfDay().toEpoch();
+        active.to = after.startOfDay().toEpoch();
+        break;
+      }
+      case Mode::Active::always:
+        active.from = now.startOfDay().toEpoch();
+        break;
+    }
+    if (active.to && active.to <= now.toEpoch())
+      throw format("That {1} mode would already be over.", mode->name);
+
+    active.id = 1;
+    for (auto& existing : change.state.modes) active.id = std::max(active.id, existing.id + 1);
+    change.state.modes.push_back(active);
+
+    auto description =
+        format("Started mode {1}, {2}", describeMode(active), describeWindow(active));
+    change.commit(description);
+    output = description + ".\n";
+    return 0;
+  }
+
+  if (sub == "stop" && args.size() == 2) {
+    Change change;
+    auto& ref = args[1];
+    auto id = ref[0] == 'm' ? ref.substr(1) : ref;
+
+    // By id, or the latest mode of that name that has not ended.
+    auto found = change.state.modes.end();
+    for (auto i = change.state.modes.begin(); i != change.state.modes.end(); ++i)
+      if (std::to_string(i->id) == id ||
+          (i->name == ref && (!i->to || i->to > now.toEpoch())))
+        found = i;
+    if (found == change.state.modes.end()) throw format("There is no started mode {1}.", ref);
+    if (found->to && found->to <= now.toEpoch())
+      throw format("Mode {1} has already ended.", describeMode(*found));
+
+    std::string description;
+    if (found->from > now.toEpoch()) {
+      description = format("Removed mode {1}, which had not started", describeMode(*found));
+      change.state.modes.erase(found);
+    } else {
+      found->to = now.toEpoch();
+      description = format("Stopped mode {1}", describeMode(*found));
+    }
+
+    change.commit(description);
+    output = description + ".\n";
+    return 0;
+  }
+
+  throw usageOf("mode");
 }
 
 ////////////////////////////////////////////////////////////////////////////////

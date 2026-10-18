@@ -257,7 +257,10 @@ void Template::parse(const std::string& contents) {
           if (existing.name == name)
             problem(number, format("Mode '{1}' is already defined on line {2}.", name,
                                    existing.line));
-        modes.push_back(Mode{name, {}, "", {}, {}, number});
+        Mode defined;
+        defined.name = name;
+        defined.line = number;
+        modes.push_back(defined);
         mode = &modes.back();
         section = "mode";
       } else if (section != "settings" && section != "categories" && weekday == -1) {
@@ -346,6 +349,17 @@ void Template::parseCategory(const std::string& line, int number) {
   // The filter is the rest of the line, as written.
   auto rest = trim(line.substr(line.find(tokens[0]) + tokens[0].length()));
   rest = trim(rest.substr(rest.find(tokens[1]) + tokens[1].length()));
+  // accounting:off at the end keeps the category out of the hours.
+  for (auto option : {"accounting:off", "accounting:on"}) {
+    std::string suffix = option;
+    if (rest.length() > suffix.length() &&
+        rest.compare(rest.length() - suffix.length(), suffix.length(), suffix) == 0 &&
+        isspace(static_cast<unsigned char>(rest[rest.length() - suffix.length() - 1]))) {
+      category.accounting = suffix == "accounting:on";
+      rest = trim(rest.substr(0, rest.length() - suffix.length()));
+    }
+  }
+
   if (rest.length() >= 2 && rest.front() == '"' && rest.back() == '"')
     rest = rest.substr(1, rest.length() - 2);
   category.filter = rest;
@@ -549,16 +563,35 @@ void Template::validate() {
         problem(mode.line, format("Mode '{1}': active must look like '7d before $date' or "
                                   "'until $end', using one of its params.",
                                   mode.name));
+      else if (before) {
+        mode.activeKind = Mode::Active::before;
+        mode.activeDays = std::stoi(tokens[0].substr(0, tokens[0].size() - 1));
+        mode.activeParam = tokens[2].substr(1);
+      } else {
+        mode.activeKind = Mode::Active::until;
+        mode.activeParam = tokens[1].substr(1);
+      }
     }
 
     // give = <selector> [N% | except N] -> <target>
     for (auto& give : mode.gives) {
       auto tokens = tokenize(give.first);
       auto arrow = std::find(tokens.begin(), tokens.end(), "->");
-      bool valid = arrow != tokens.end() && arrow + 2 == tokens.end() &&
-                   (arrow - tokens.begin() == 1 ||
-                    (arrow - tokens.begin() == 2 && tokens[1].back() == '%') ||
-                    (arrow - tokens.begin() == 3 && tokens[1] == "except"));
+      Mode::Give rule;
+      bool valid = arrow != tokens.end() && arrow + 2 == tokens.end();
+      if (valid && arrow - tokens.begin() == 2) {
+        double percent;
+        valid = tokens[1].back() == '%' &&
+                isNumber(tokens[1].substr(0, tokens[1].size() - 1), percent) && percent > 0 &&
+                percent <= 100 && percent == static_cast<int>(percent);
+        rule.percent = valid ? static_cast<int>(percent) : 100;
+      } else if (valid && arrow - tokens.begin() == 3) {
+        double except;
+        valid = tokens[1] == "except" && isNumber(tokens[2], except) && except >= 0 &&
+                except == static_cast<int>(except);
+        rule.except = valid ? static_cast<int>(except) : -1;
+      } else
+        valid = valid && arrow - tokens.begin() == 1;
       if (!valid) {
         problem(give.second, "A give rule must look like 'give = <slots> -> <category>', "
                              "optionally with 50% or 'except 1' before the arrow.");
@@ -570,6 +603,9 @@ void Template::validate() {
         problem(give.second,
                 format("'{1}' is not a category, or one of the mode's params such as $course.",
                        tokens.back()));
+      rule.selector = tokens[0];
+      rule.target = tokens.back();
+      mode.giveRules.push_back(rule);
     }
 
     // floor = <category> <hours>
@@ -580,6 +616,8 @@ void Template::validate() {
         problem(floor.second, "A floor rule must look like 'floor = <category> <hours>'.");
       else if (!isTarget(tokens[0]))
         problem(floor.second, format("'{1}' is not a category.", tokens[0]));
+      else
+        mode.floorRules.push_back({tokens[0], hours});
     }
   }
 
@@ -601,6 +639,13 @@ void Template::problem(int line, const std::string& message) {
 const Category* Template::category(const std::string& name) const {
   for (auto& category : categories)
     if (category.name == name) return &category;
+  return nullptr;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+const Mode* Template::mode(const std::string& name) const {
+  for (auto& mode : modes)
+    if (mode.name == name) return &mode;
   return nullptr;
 }
 
