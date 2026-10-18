@@ -36,11 +36,11 @@ jobs:
           # makepkg refuses to run as root.
           useradd --create-home builder
           chown -R builder "$GITHUB_WORKSPACE"
-          su builder -c "git config --global --add safe.directory '$GITHUB_WORKSPACE' && bash '$GITHUB_WORKSPACE/jalali/build-package.sh'"
+          su builder -c "git config --global --add safe.directory '$GITHUB_WORKSPACE' && bash '$GITHUB_WORKSPACE/persiantask/build-package.sh'"
 
       - name: Publish repository
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-        run: bash jalali/publish-repo.sh
+        run: bash persiantask/publish-repo.sh

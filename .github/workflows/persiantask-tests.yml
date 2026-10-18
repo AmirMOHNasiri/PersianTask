@@ -1,7 +1,7 @@
 # Builds PersianTask and runs the Jalali calendar tests, on every push to main
 # and every pull request.
 
-name: Jalali tests
+name: Tests
 
 on:
   push:
@@ -21,4 +21,4 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y uuid-dev
 
       - name: Build and test
-        run: bash jalali/build-and-test.sh
+        run: bash persiantask/build-and-test.sh

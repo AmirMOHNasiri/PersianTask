@@ -54,7 +54,7 @@ jobs:
         if: steps.fetch.outputs.pending == 'true'
         run: |
           git checkout -b "$BRANCH"
-          bash jalali/sync-upstream.sh upstream/develop
+          bash persiantask/sync-upstream.sh upstream/develop
           git submodule update --init --recursive
 
       - name: Install dependencies
@@ -64,7 +64,7 @@ jobs:
       - name: Build and test
         if: steps.fetch.outputs.pending == 'true'
         shell: bash  # Implies pipefail, so that a failure is not hidden by tee.
-        run: bash jalali/build-and-test.sh | tee test-results.txt
+        run: bash persiantask/build-and-test.sh | tee test-results.txt
 
       - name: Open pull request
         if: steps.fetch.outputs.pending == 'true'

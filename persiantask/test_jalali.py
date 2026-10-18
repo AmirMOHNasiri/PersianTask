@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the Jalali (Shamsi) calendar in PersianTask.
 
-Usage: python3 jalali/test_jalali.py path/to/task
+Usage: python3 persiantask/test_jalali.py path/to/task
 
 Runs the given task binary against a temporary data directory, and compares
 its dates with the independent reference conversion in jalali_reference.py.

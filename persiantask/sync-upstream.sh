@@ -2,7 +2,7 @@
 #
 # Merges upstream Taskwarrior into the current branch.
 #
-# Usage: jalali/sync-upstream.sh [upstream-ref]     (default: upstream/develop)
+# Usage: persiantask/sync-upstream.sh [upstream-ref]     (default: upstream/develop)
 #
 # Upstream keeps src/libshared as a git submodule, while PersianTask vendors it
 # (the Jalali calendar lives in src/libshared/src/Datetime.cpp).  So when

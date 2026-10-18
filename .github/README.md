@@ -107,11 +107,11 @@ The display format is set with `dateformat`. For example, `task config dateforma
 
 - `src/libshared/src/Datetime.cpp`: Jalali conversion (Borkowski's algorithm, which matches the official Iranian calendar), parsing and display.
 - `src/commands/CmdCalendar.cpp`, `src/recur.cpp`, `src/Context.cpp`: the calendar view, recurrence, and weeks starting on Saturday.
-- `jalali/`: the Jalali calendar tests, and the script that merges upstream updates.
-- `.github/workflows/jalali-*.yml`: runs the tests, and merges upstream every week.
+- `persiantask/`: the Jalali calendar tests, and the script that merges upstream updates.
+- `.github/workflows/persiantask-*.yml`: runs the tests, and merges upstream every week.
 - `pkg/arch/PKGBUILD`: the Arch Linux package, and `pkg/arch/persiantask.asc`, the key that signs the prebuilt packages.
 
-To run the tests: `bash jalali/build-and-test.sh`
+To run the tests: `bash persiantask/build-and-test.sh`
 
 ## License
 

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
 # Builds the 'persiantask' Arch Linux package from the current commit, into
-# jalali/out.  This is the prebuilt package published in the pacman
+# persiantask/out.  This is the prebuilt package published in the pacman
 # repository, made from pkg/arch/PKGBUILD (the 'persiantask-git' AUR package),
 # but built from this checkout instead of the latest commit on GitHub.
 #
-# Usage: jalali/build-package.sh     (as a regular user, not root)
+# Usage: persiantask/build-package.sh     (as a regular user, not root)
 
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
-out="$repo/jalali/out"
+out="$repo/persiantask/out"
 commit=$(git -C "$repo" rev-parse HEAD)
 
 # Not in /tmp, which is often a small tmpfs.

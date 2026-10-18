@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Publishes the package in jalali/out as the 'persiantask' pacman repository,
+# Publishes the package in persiantask/out as the 'persiantask' pacman repository,
 # hosted as the assets of the 'repo' GitHub release.  Users add:
 #
 #   [persiantask]
@@ -8,7 +8,7 @@
 #
 # If GPG_PRIVATE_KEY is set, the package and the database are signed with it.
 #
-# Usage: jalali/publish-repo.sh     (with GH_TOKEN and GH_REPO set, for gh)
+# Usage: persiantask/publish-repo.sh     (with GH_TOKEN and GH_REPO set, for gh)
 
 set -euo pipefail
 
