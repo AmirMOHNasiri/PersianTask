@@ -40,6 +40,15 @@ const std::vector<HelpEntry>& helpEntries() {
        "The number next to each slot can be used in place of its id.",
        {"task schedule week", "task schedule week next", "task schedule week 1405-08-10"}},
 
+      {"review", "[prev | next | week:<date>]",
+       "The weekly review",
+       "For each category: the hours planned, the hours tracked with 'task start' and\n"
+       "'task stop', and its floor.  Then the categories below their floor two weeks\n"
+       "running, what the buffer slots were used for (and whether the plan is too\n"
+       "heavy), and the deadlines this week and next.  'prev' (or 'last') reviews last\n"
+       "week.",
+       {"task schedule review", "task schedule review last"}},
+
       {"init", "[example | blank]",
        "Creates a schedule template",
        "Creates the template file (see 'task schedule help template'), either from the\n"
@@ -157,6 +166,10 @@ std::string help() {
   out << "\n"
          "Slots are named by their id in the template, such as sat-ds, or by the number\n"
          "shown next to them in 'task schedule week'.\n"
+         "\n"
+         "Estimates: 'task add Paper project:research estimate:4h' plans 4h times the\n"
+         "template's estimate.factor.  An estimate needs a unit, such as 4h or 90min.  In\n"
+         "'task schedule borrow', a plain number means hours.\n"
          "\n"
          "More: 'task schedule help <command>', 'task schedule help template', and the full\n"
          "reference in docs/schedule.md.\n";

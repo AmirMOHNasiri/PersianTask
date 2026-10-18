@@ -7,6 +7,7 @@ PersianTask can plan your week. You describe a typical week once, as a template 
 - [Commands](#commands)
 - [Estimates](#estimates)
 - [Borrowing time](#borrowing-time)
+- [The weekly review](#the-weekly-review)
 - [Changing one week](#changing-one-week)
 - [Where the schedule is stored](#where-the-schedule-is-stored)
 - [The template file](#the-template-file)
@@ -210,18 +211,34 @@ task add Paper draft project:research estimate:4h
 task 12 modify estimate:90min
 ```
 
+An estimate needs a unit: `4h`, `90min`, `1.5h`, `2d`. Taskwarrior refuses a bare number such as `estimate:4`. A very small estimate, under five minutes, is most likely a typo such as `4s` for `4h`, so `task schedule week` and `task schedule check` point it out. (In `task schedule borrow`, on the other hand, a bare number means hours: `borrow 12 2` is two hours.)
+
 The schedule then plans the estimate times `estimate.factor` (a template setting, 1.5 in the example), since work tends to take longer than expected. The `Estimate` column shows both: `4h (6h)`.
 
 The time still to plan is the planned time minus the time already tracked on the task with `task start` and `task stop`. Once time is tracked, the column shows what is left, as in `4h (6h), 2.5h left`, and a task past its planned time shows `over`.
 
 A task with time left takes slots, most urgent first, until that time is covered. Only the part of a slot after the current time counts: earlier slots this week still show their task, but do not use up its time, which is either tracked already or gone. A task with no estimate, or past it, takes at most `unestimated.per-day` slots a day.
 
-The estimate is the `estimate` UDA, defined by PersianTask as a duration. If you already have a UDA named `estimate` of another type, `task schedule check` (and `init`) says so: either make it a duration, or give the schedule another UDA:
+### The estimate UDA
 
-```
-task config schedule.estimate.uda effort
-task config uda.effort.type duration
-```
+PersianTask defines a UDA (user defined attribute) named `estimate` by default, as a duration, so `estimate:4h` works out of the box. It is an ordinary Taskwarrior UDA: it can be shown in reports (`task rc.report.next.columns=id,description,estimate rc.report.next.labels=ID,Description,Estimate next`) and used in filters (`estimate.over:2h`).
+
+Many Taskwarrior users already have their own `estimate` UDA, often a number of hours or points. Your own definition in `.taskrc` always wins over the default, so nothing changes for your tasks; but the schedule then cannot read it as a duration. `task schedule init` and `task schedule check` detect this and explain both ways out:
+
+- make your UDA a duration, if its values are durations already:
+
+  ```
+  task config uda.estimate.type duration
+  ```
+
+- or keep it as it is, and give the schedule a UDA of its own:
+
+  ```
+  task config schedule.estimate.uda effort
+  task config uda.effort.type duration
+  ```
+
+While the estimate UDA is not usable, the schedule ignores estimates, and `task schedule week` says so.
 
 Estimates are stored exactly as you write them; the factor is only applied when planning, so changing it later needs no change to your tasks.
 
@@ -246,6 +263,22 @@ Each name is a slot, or a category, meaning that category's slots in time order.
 - and its category keeps its floor: a category lends only as long as its planned hours stay at or above its floor. Hours use each slot's length after this week's changes.
 
 Sleep is never borrowed from, since it is not a slot. `borrow` lists the slots it took, and says if it could not cover all the hours and which categories it kept at their floor. The borrowed slots show `borrowed` in the schedule. Borrowing is a change like any other: `task schedule undo` gives the time back, and `task schedule reset` frees a slot.
+
+## The weekly review
+
+```
+task schedule review
+task schedule review last
+```
+
+A look back at a week, and ahead at the next one. It shows, in order:
+
+1. **Hours per category**: planned, tracked, and the floor. Planned hours are those of the [`Planned:` line](#how-a-slot-gets-its-task), using each slot's length after the week's changes. Tracked hours are the time tracked with `task start` and `task stop` during that week, on any task, including tasks finished since; a task counts for the first category, in template order, whose filter it matches, and tracked time matching no category shows as `(no category)`. In a finished week, categories under their floor are marked.
+2. **Floors**: the categories below their floor two weeks running. Those are the last two finished weeks: for the current week, which is not over yet, the two weeks before it. If no time at all was tracked in those weeks, floors are checked against planned hours instead, and the review says so.
+3. **The buffer**: what each `buffer` slot was used for. A buffer is *full* when all its slots were lent with `borrow` or assigned with `assign`, which is the sign of work overflowing the plan; ordinary fallback work does not count. If it was full two weeks running, the plan is too heavy, and the review suggests fewer slots of the first category the template borrows from after the buffer (`arch` in the example).
+4. **Deadlines**: pending tasks due this week and next week, with overdue ones marked.
+
+Planned hours of past weeks are computed from your tasks as they are today, since the schedule keeps changes, not past plans.
 
 ## Changing one week
 

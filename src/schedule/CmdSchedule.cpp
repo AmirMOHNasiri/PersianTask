@@ -75,6 +75,12 @@ void schedule::initialize(CLI2& cli) {
 
   CLI2::defaultCommandHook = defaultCommand;
 
+  // Test-only: keeps a fake current time active for the whole command, to
+  // prove that TDB2 refuses to write then.  Not for users, and not
+  // documented.
+  if (config.getBoolean("schedule.test.leak-now"))
+    Datetime::currentTimeOverride = schedule::now().toEpoch();
+
   // 'task tasks' is the usual task list, whatever default.command says.
   if (!config.has("alias.tasks")) {
     auto command = config.get("default.command");
@@ -147,6 +153,7 @@ int CmdSchedule::execute(std::string& output) {
   if (name == "assign") return assign(args, output);
   if (name == "reset") return reset(args, output);
   if (name == "borrow") return borrow(args, output);
+  if (name == "review") return review(args, output);
   if (name == "event") return event(args, output);
   if (name == "undo") {
     if (!args.empty()) throw usage();
@@ -261,6 +268,7 @@ int CmdSchedule::week(const std::vector<std::string>& args, std::string& output)
 
   auto udaProblem = estimateUdaProblem();
   if (!udaProblem.empty()) out << "Note: estimates are ignored.  " << udaProblem << '\n';
+  for (auto& warning : estimateWarnings()) out << "Note: " << warning << '\n';
   output = out.str();
   return 0;
 }
@@ -353,6 +361,8 @@ int CmdSchedule::check(std::string& output) {
   out << format("{1}: no problems.  {2} slots on {3} days, {4} categories, {5} modes.\n",
                 Template::path(), tmpl.slots.size(), days.size(), tmpl.categories.size(),
                 tmpl.modes.size());
+
+  for (auto& warning : estimateWarnings()) out << "Note: " << warning << '\n';
 
   // Changes to this week and later weeks that can no longer be honored.
   State state;

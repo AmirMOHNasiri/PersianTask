@@ -14,6 +14,7 @@
 #include <Task.h>
 
 #include <string>
+#include <vector>
 
 // Estimates and tracked time, in seconds.
 namespace schedule {
@@ -32,7 +33,14 @@ long estimate(const Task&);
 // running, from the task's history.
 long tracked(const Task&);
 
-// "2h", "1.5h", "45min".
+// The same, as intervals of time.
+std::vector<std::pair<time_t, time_t>> trackedIntervals(const Task&);
+
+// Warnings for pending tasks whose estimate is so small (under five
+// minutes) that it is probably missing a unit, such as 4s for 4h.
+std::vector<std::string> estimateWarnings();
+
+// "2h", "1.5h", "45min", "4s".
 std::string formatHours(long seconds);
 
 // Hours, such as "2", "1.5", "2h" or "90min", or -1 if invalid.

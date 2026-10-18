@@ -79,13 +79,13 @@ long estimate(const Task& task) {
 ////////////////////////////////////////////////////////////////////////////////
 // As 'task info' does: a start is the time in the 'start' value, and a stop
 // is when the 'start' value was removed.
-long tracked(const Task& task) {
+std::vector<std::pair<time_t, time_t>> trackedIntervals(const Task& task) {
   auto& replica = Context::getContext().tdb2.replica();
   auto tcoperations = replica->get_task_operations(tc::uuid_from_string(task.get("uuid")));
   auto operations = Operation::operations(tcoperations);
   std::sort(operations.begin(), operations.end());
 
-  long total = 0;
+  std::vector<std::pair<time_t, time_t>> intervals;
   std::optional<time_t> started;
   for (auto& op : operations) {
     if (!op.is_update() || op.get_property() != "start") continue;
@@ -98,17 +98,39 @@ long tracked(const Task& task) {
         // An invalid start is not counted.
       }
     } else if (started) {
-      total += std::max<long>(0, op.get_timestamp() - *started);
+      if (op.get_timestamp() > *started) intervals.emplace_back(*started, op.get_timestamp());
       started.reset();
     }
   }
 
-  if (started) total += std::max<long>(0, Datetime::currentTime() - *started);
+  if (started && Datetime::currentTime() > *started)
+    intervals.emplace_back(*started, Datetime::currentTime());
+  return intervals;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+long tracked(const Task& task) {
+  long total = 0;
+  for (auto& interval : trackedIntervals(task)) total += interval.second - interval.first;
   return total;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+std::vector<std::string> estimateWarnings() {
+  std::vector<std::string> warnings;
+  for (auto& task : Context::getContext().tdb2.pending_tasks()) {
+    auto seconds = estimate(task);
+    if (seconds > 0 && seconds < 5 * 60)
+      warnings.push_back(format(
+          "Task {1}'s estimate, {2}, looks like it is missing a unit, such as {3}h.", task.id,
+          formatHours(seconds), seconds < 60 ? seconds : seconds / 60));
+  }
+  return warnings;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 std::string formatHours(long seconds) {
+  if (seconds < 60) return format("{1}s", seconds);
   long minutes = (seconds + 30) / 60;
   if (minutes < 60) return format("{1}min", minutes);
 

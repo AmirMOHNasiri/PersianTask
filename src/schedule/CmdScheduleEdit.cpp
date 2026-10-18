@@ -375,24 +375,22 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
         if (!instance.event && instance.slot->category == name) candidates.push_back(&instance);
   }
 
-  auto key = week.start.toEpoch();
-  long taken = 0;
-  std::vector<std::string> lent;
-  std::vector<std::string> floors;
+  // The slots that may lend, in borrow order, each once.
+  struct Candidate {
+    const Instance* instance;
+    std::string category;  // Of the work it would do.
+  };
+  std::vector<Candidate> eligible;
   for (auto instance : candidates) {
-    if (taken >= needed) break;
-
     auto& slot = *instance->slot;
     if (instance->event || slot.kind == Kind::fixed || slot.kind == Kind::rest ||
         slot.isProtected || !instance->pinnedTask.empty() || !instance->pinnedFilter.empty())
       continue;
     if (instance->day.toEpoch() + instance->start * 60 < now) continue;
-    if (std::find_if(lent.begin(), lent.end(), [&](auto& l) {
-          return l.substr(0, instance->id.length() + 1) == instance->id + " ";
-        }) != lent.end())
+    if (std::any_of(eligible.begin(), eligible.end(),
+                    [&](auto& c) { return c.instance == instance; }))
       continue;
 
-    // The category of the work the slot would have done.
     auto assignment = std::find_if(assignments.begin(), assignments.end(),
                                    [&](auto& a) { return a.instance == instance; });
     std::string category;
@@ -400,25 +398,57 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
       if (assignment->task->get("uuid") == uuid) continue;  // Already this task's.
       category = assignment->source == Source::fallback ? assignment->via : slot.category;
     }
+    eligible.push_back({instance, category});
+  }
 
-    if (auto c = change.tmpl.category(category)) {
-      if (c->floor >= 0 && (minutes[category] - instance->minutes()) < c->floor * 60) {
-        if (std::find(floors.begin(), floors.end(), category) == floors.end())
-          floors.push_back(category);
-        continue;
-      }
-      minutes[category] -= instance->minutes();
+  // A category lends only as long as it stays at or above its floor.
+  auto keepsFloor = [&](const Candidate& c) {
+    auto category = change.tmpl.category(c.category);
+    return !category || category->floor < 0 ||
+           minutes[c.category] - c.instance->minutes() >= category->floor * 60;
+  };
+
+  auto key = week.start.toEpoch();
+  long taken = 0;
+  std::vector<std::string> lent;
+  std::vector<std::string> floors;
+  for (size_t i = 0; i < eligible.size() && taken < needed; ++i) {
+    auto& candidate = eligible[i];
+    auto instance = candidate.instance;
+    if (!keepsFloor(candidate)) {
+      if (std::find(floors.begin(), floors.end(), candidate.category) == floors.end())
+        floors.push_back(candidate.category);
+      continue;
     }
+
+    // A slot that would overshoot the need by more than half its own length
+    // is passed over, if a later slot covers the need with less overshoot.
+    long length = instance->minutes() * 60L;
+    long remaining = needed - taken;
+    if (length - remaining > length / 2) {
+      bool better = false;
+      for (size_t j = i + 1; j < eligible.size() && !better; ++j) {
+        long other = eligible[j].instance->minutes() * 60L;
+        better = keepsFloor(eligible[j]) && other >= remaining &&
+                 other - remaining < length - remaining;
+      }
+      if (better) continue;
+    }
+
+    if (!candidate.category.empty()) minutes[candidate.category] -= instance->minutes();
 
     auto& o = change.state.at(key, instance->id);
     o.task = uuid;
     o.filter.clear();
     o.skipped = false;
     o.borrowed = true;
-    taken += instance->minutes() * 60L;
-    lent.push_back(format("{1} ({2}{3})", instance->id,
+    taken += length;
+    lent.push_back(format("{1} ({2}{3}){4}", instance->id,
                           describePlace(instance->day, instance->start, instance->end),
-                          category.empty() ? "" : ", from " + category));
+                          candidate.category.empty() ? "" : ", from " + candidate.category,
+                          length > remaining ? format(": took {1} for {2} needed",
+                                                      formatHours(length), formatHours(remaining))
+                                             : ""));
   }
 
   std::string floorNote;

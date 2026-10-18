@@ -146,6 +146,9 @@ class Planner {
   std::vector<Assignment> plan(const Week&);
   std::vector<Task> matching(const std::string& filter);
 
+  // The tasks of the pool that match the filter, in the pool's order.
+  std::vector<Task> evaluate(const std::string& filter, const std::vector<Task>& pool);
+
   // Assignments that could not be honored, such as a pinned task that is no
   // longer pending.
   std::vector<std::string> notes;

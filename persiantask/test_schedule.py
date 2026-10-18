@@ -436,7 +436,8 @@ def test_viewing_writes_nothing(task):
         return files
 
     before = snapshot()
-    for args in [["schedule"], ["schedule", "week"], ["schedule", "check"], []]:
+    for args in [["schedule"], ["schedule", "week"], ["schedule", "check"],
+                 ["schedule", "review"], []]:
         task.out(NOW, *args)
     check("Viewing the schedule changes no file", snapshot(), before)
 
@@ -899,6 +900,172 @@ def test_borrow(task):
     check_true("borrow needs a borrow setting", code != 0 and "no borrow setting" in err, err)
 
 
+def test_write_guard(task):
+    """TDB2 refuses to write while a fake current time is active."""
+    code, out, err = task.run(NOW, "rc.schedule.test.leak-now:on", "add", "Leaked")
+    check_true("A write with a fake now fails", code != 0 and "Internal error" in err, err)
+    check_true("The task was not written", "Leaked" not in task.run("all")[1])
+    check_true("Writing works without it", task.run("add", "Fine")[0] == 0)
+
+
+OVERSHOOT = """
+[settings]
+fallback = rest
+borrow = big small
+
+[categories]
+os   -   project:os
+
+[shanbe]
+08:00-11:00  big    buffer  -
+12:00-13:00  small  buffer  -
+"""
+
+
+def test_borrow_overshoot(task):
+    write_template(task, OVERSHOOT)
+    task.out("add", "OS1", "project:os")
+    early = "rc.schedule.now:2026-10-17T06:00:00"
+
+    out = task.out(early, "schedule", "borrow", "1", "0.5")
+    check("borrow passes over a slot that overshoots a lot, for a better later one",
+          re.findall(r"^  (\S+) ", out, re.MULTILINE), ["small"])
+    check_true("borrow shows the overshoot", "took 1h for 30min needed" in out, out)
+    task.out(early, "schedule", "undo")
+
+    out = task.out(early, "schedule", "borrow", "1", "2")
+    check("borrow takes a slot that overshoots by at most half its length",
+          re.findall(r"^  (\S+) ", out, re.MULTILINE), ["big"])
+    task.out(early, "schedule", "undo")
+
+    write_template(task, OVERSHOOT.replace("12:00-13:00  small", "12:00-12:15  small"))
+    out = task.out(early, "schedule", "borrow", "1", "0.5")
+    check("borrow takes an overshooting slot when no later one covers the need better",
+          re.findall(r"^  (\S+) ", out, re.MULTILINE), ["big"])
+    check_true("borrow shows that overshoot", "took 3h for 30min needed" in out, out)
+
+
+def test_small_estimates(task):
+    write_template(task, SMALL)
+    task.out("add", "Tiny", "project:os", "estimate:4s")
+    task.out("add", "Fine", "project:os", "estimate:4h")
+
+    out = task.out(NOW, "schedule", "week")
+    check_true("The week warns about an estimate missing its unit",
+               "estimate, 4s, looks like it is missing a unit, such as 4h" in out, out)
+    check_true("Only small estimates are warned about", "4h, looks like" not in out, out)
+    out = task.out("schedule", "check")
+    check_true("check warns about an estimate missing its unit", "4s, looks like" in out, out)
+
+
+REVIEW = """
+[settings]
+fallback = rest
+borrow   = buf res
+
+[categories]
+res   3   project:res
+os    1   project:os
+net   2   project:net
+ds    -   project:ds
+
+[shanbe]
+08:00-11:00  sat-res  study   res
+12:00-13:00  sat-os   study   os
+
+[jome]
+10:00-11:00  buf      buffer  -
+"""
+
+
+def test_review(task):
+    write_template(task, REVIEW)
+    task.out("add", "R1", "project:res")
+    task.out("add", "O1", "project:os")
+
+    out = task.out(NOW, "schedule", "review")
+    check_true("review names the week", "Review of Week 31: Shanbe 25 Mehr 1405" in out, out)
+    rows = {line.split()[0]: line.split()[1:] for line in out.splitlines()
+            if line.split() and line.split()[0] in ("res", "os", "net", "ds")}
+    check("review shows planned hours and floors", (rows.get("res"), rows.get("os")),
+          (["3h", "0h", "3h"], ["1h", "0h", "1h"]))
+    check_true("review lists categories with a floor even when unplanned", "net" in rows, rows)
+    check_true("review hides categories with no hours and no floor", "ds" not in rows, rows)
+
+    check_true("review uses planned hours when nothing was tracked",
+               "checked\n  against planned hours" in out, out)
+    check_true("review warns about a floor missed two weeks running",
+               "net was below its floor of 2h two weeks running: 0h in week 29, and 0h in week 30"
+               in out, out)
+    check_true("review does not warn about floors that were met",
+               "res was below" not in out and "os was below" not in out, out)
+
+    out = task.out(NOW, "schedule", "review", "last")
+    check_true("review last reviews the previous week",
+               "Review of Week 30" in out and "(so far)" not in out, out)
+
+
+def test_review_tracked(task):
+    """Tracked time counts in the week it happened (the real current week)."""
+    write_template(task, REVIEW)
+    task.out("add", "R1", "project:res")
+    task.out("add", "X1")
+    for number in ("1", "2"):
+        task.out(number, "start")
+        task.out(number, "modify", "start:now-1min")
+        task.out(number, "stop")
+
+    out = task.out("schedule", "review")
+    rows = {line.split()[0]: line.split()[1:] for line in out.splitlines() if line.split()}
+    check("Tracked time counts for the task's category", rows.get("res", [""])[1:2], ["1min"])
+    check_true("Tracked time with no category is listed", "(no category)" in out, out)
+
+
+def test_review_buffer(task):
+    write_template(task, REVIEW)
+    task.out("add", "O1", "project:os")
+
+    out = task.out(NOW, "schedule", "review")
+    check_true("review shows a free buffer", "buf (Jome 1 Aban 10:00-11:00): free" in out, out)
+
+    task.out(NOW, "schedule", "assign", "buf", "1")
+    out = task.out(NOW, "schedule", "review")
+    check_true("review shows what the buffer was used for", "assigned to task 1, 'O1'" in out, out)
+    check_true("One full week is not too heavy", "too heavy" not in out, out)
+
+    task.out(NOW, "schedule", "assign", "buf", "1", "prev")
+    out = task.out(NOW, "schedule", "review")
+    check_true("A buffer full two weeks running means the plan is too heavy",
+               "full two weeks running, so the plan is too heavy" in out, out)
+    check_true("review suggests the first category lending after the buffer",
+               "Consider fewer res slots" in out, out)
+
+    write_template(task, REVIEW.replace("fallback = rest", "fallback = os rest"))
+    task.out(NOW, "schedule", "reset", "week")
+    task.out(NOW, "schedule", "reset", "week", "prev")
+    out = task.out(NOW, "schedule", "review")
+    check_true("Fallback work does not make the buffer full",
+               "used for task 1" in out and "too heavy" not in out, out)
+
+
+def test_review_deadlines(task):
+    write_template(task, REVIEW)
+    task.out("add", "Before", "due:2026-10-10")
+    task.out("add", "ThisWeek", "due:2026-10-20")
+    task.out("add", "NextWeek", "due:2026-10-26")
+    task.out("add", "Later", "due:2026-11-10")
+    task.out("add", "Overdue", "due:2026-10-17T08:00")
+
+    out = task.out(NOW, "schedule", "review")
+    deadlines = out[out.index("Deadlines"):]
+    this, next = deadlines.split("Next week:")
+    check_true("Deadlines this week", "ThisWeek" in this and "NextWeek" not in this, deadlines)
+    check_true("Deadlines next week", "NextWeek" in next and "ThisWeek" not in next, deadlines)
+    check_true("Other deadlines are left out", "Before" not in deadlines and "Later" not in deadlines,
+               deadlines)
+    check_true("Overdue deadlines are marked", "Overdue, overdue" in this, deadlines)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -909,4 +1076,7 @@ if __name__ == "__main__":
                         test_undo_and_log, test_dangling_references, test_state_files,
                         test_time_reads, test_swap_durations, test_estimates, test_tracked_time,
                         test_estimates_from_now, test_estimate_uda, test_borrow,
+                        test_write_guard, test_borrow_overshoot, test_small_estimates,
+                        test_review, test_review_tracked, test_review_buffer,
+                        test_review_deadlines,
                         test_help], fresh=True))

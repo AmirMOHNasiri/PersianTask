@@ -31,7 +31,6 @@
 #include <Context.h>
 #include <Datetime.h>
 #include <TDB2.h>
-#include <cassert>
 #include <Table.h>
 #include <format.h>
 #include <shared.h>
@@ -71,7 +70,8 @@ void TDB2::open_replica(const std::string& location, bool create_if_missing, boo
 // Add the new task to the replica.
 void TDB2::add(Task& task) {
   // PersianTask: a schedule's fake "now" must never reach stored data.
-  assert(Datetime::currentTimeOverride == 0);
+  if (Datetime::currentTimeOverride)
+    throw std::string("Internal error: a task was written while a fake current time was active.");
 
   // Ensure the task is consistent, and provide defaults if necessary.
   // bool argument to validate() is "applyDefault", to apply default values for
@@ -135,7 +135,8 @@ void TDB2::add(Task& task) {
 // they have been unmodified for a long time.
 void TDB2::modify(Task& task) {
   // PersianTask: a schedule's fake "now" must never reach stored data.
-  assert(Datetime::currentTimeOverride == 0);
+  if (Datetime::currentTimeOverride)
+    throw std::string("Internal error: a task was written while a fake current time was active.");
 
   // All locally modified tasks are timestamped, implicitly overwriting any
   // changes the user or hooks tried to apply to the "modified" attribute.

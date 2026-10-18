@@ -17,6 +17,7 @@ configure_file (ScheduleExample.h.in ${CMAKE_CURRENT_BINARY_DIR}/ScheduleExample
 
 set (schedule_SRCS CmdSchedule.cpp       CmdSchedule.h
                    CmdScheduleEdit.cpp
+                   CmdScheduleReview.cpp
                    ScheduleEffort.cpp    ScheduleEffort.h
                    ScheduleHelp.cpp      ScheduleHelp.h
                    SchedulePlanner.cpp   SchedulePlanner.h

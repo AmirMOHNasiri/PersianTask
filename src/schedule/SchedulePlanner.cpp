@@ -188,6 +188,28 @@ Planner::Planner(const Template& tmpl, const Datetime& reference)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+std::vector<Task> Planner::evaluate(const std::string& filter, const std::vector<Task>& pool) {
+  NowGuard now(_reference.toEpoch());
+
+  std::vector<Task> result;
+  CliGuard guard;
+
+  // The filter, followed by a command that accepts one.
+  std::vector<std::string> args{"("};
+  std::string lexeme;
+  Lexer::Type type;
+  Lexer lexer(filter);
+  while (lexer.token(lexeme, type)) args.push_back(lexeme);
+  args.push_back(")");
+  args.push_back("count");
+
+  // Slots pull tasks regardless of the active context.
+  CliGuard::replaceArgs(args, false);
+  Filter().subset(pool, result);
+  return result;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // The pending tasks matching a filter, most urgent first.
 std::vector<Task> Planner::matching(const std::string& filter) {
   auto cached = _cache.find(filter);
@@ -195,24 +217,7 @@ std::vector<Task> Planner::matching(const std::string& filter) {
 
   // Filters and urgency are evaluated as of the reference time.
   NowGuard now(_reference.toEpoch());
-
-  std::vector<Task> result;
-  {
-    CliGuard guard;
-
-    // The filter, followed by a command that accepts one.
-    std::vector<std::string> args{"("};
-    std::string lexeme;
-    Lexer::Type type;
-    Lexer lexer(filter);
-    while (lexer.token(lexeme, type)) args.push_back(lexeme);
-    args.push_back(")");
-    args.push_back("count");
-
-    // Slots pull tasks regardless of the active context.
-    CliGuard::replaceArgs(args, false);
-    Filter().subset(_pending, result);
-  }
+  auto result = evaluate(filter, _pending);
 
   // Task::urgency is not const, so the scores are computed before sorting.
   std::vector<std::pair<float, Task>> scored;
