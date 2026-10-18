@@ -12,6 +12,7 @@
 // cmake.h include header must come first
 
 #include <Context.h>
+#include <ScheduleEffort.h>
 #include <ScheduleView.h>
 #include <Table.h>
 #include <format.h>
@@ -88,7 +89,31 @@ std::string describePlace(const Datetime& day, int start, int end) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-std::string renderTable(const std::vector<Assignment>& assignments, bool days) {
+std::string describeEffort(const Effort& effort) {
+  if (effort.estimate <= 0) return "";
+
+  auto text = formatHours(effort.estimate) + " (" + formatHours(effort.planned) + ")";
+  if (effort.remaining <= 0) return text + ", over";
+  if (effort.tracked > 0) text += ", " + formatHours(effort.remaining) + " left";
+  return text;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+std::string renderHours(const Template& tmpl, const std::vector<Assignment>& assignments,
+                        Planner& planner) {
+  auto minutes = planner.minutesByCategory(assignments);
+
+  std::string line;
+  for (auto& category : tmpl.categories) {
+    auto found = minutes.find(category.name);
+    if (found == minutes.end() || found->second == 0) continue;
+    line += (line.empty() ? "" : ", ") + category.name + ' ' + formatHours(found->second * 60L);
+  }
+  return line.empty() ? "" : "Planned: " + line + '\n';
+}
+
+////////////////////////////////////////////////////////////////////////////////
+std::string renderTable(const std::vector<Assignment>& assignments, bool days, Planner& planner) {
   Table table;
   table.width(Context::getContext().getWidth());
   table.withColor(Context::getContext().color());
@@ -98,6 +123,7 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days) {
   table.add("Slot");
   table.add("ID", false);
   table.add("Task");
+  table.add("Estimate");
   table.add("From");
   setHeaderUnderline(table);
 
@@ -110,7 +136,7 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days) {
     auto& instance = *assignment.instance;
     auto& slot = *instance.slot;
 
-    std::string id, description, from;
+    std::string id, description, estimate, from;
     switch (assignment.source) {
       case Source::event:
         description = instance.event->title;
@@ -124,6 +150,9 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days) {
         break;
       case Source::pinned:
         from = "assigned";
+        break;
+      case Source::borrowed:
+        from = "borrowed";
         break;
       case Source::slot:
         from = slot.category.empty() ? "filter" : slot.category;
@@ -142,6 +171,7 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days) {
       auto task = *assignment.task;
       id = std::to_string(task.id);
       description = task.get("description");
+      estimate = describeEffort(planner.effort(task));
     }
 
     bool sameDay = previous && previous->day.sameDay(instance.day);
@@ -167,7 +197,8 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days) {
     table.set(row, column + 2, instance.id + (instance.moved ? " (moved)" : ""), color);
     table.set(row, column + 3, id, color);
     table.set(row, column + 4, description, color);
-    table.set(row, column + 5, from, color);
+    table.set(row, column + 5, estimate, color);
+    table.set(row, column + 6, from, color);
 
     previous = &instance;
   }

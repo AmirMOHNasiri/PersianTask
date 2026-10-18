@@ -130,11 +130,11 @@ Describe your typical week once, as a template of time slots: classes, study blo
 $ task schedule week
 Week 31: Shanbe 25 Mehr 1405 - Jome 1 Aban 1405
 
-Day              #  Time         Slot           ID  Task            From
-Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project    term (fallback)
-                 2  07:30-10:30  sat-research    2  Paper draft     research
-                 3  11:00-12:30  sat-ds          3  Tree exercises  ds
-                 4  14:00-16:00  sat-os-hw       1  OS homework 3   os
+Day              #  Time         Slot           ID  Task            Estimate  From
+Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project              term (fallback)
+                 2  07:30-10:30  sat-research    2  Paper draft     2h (3h)   research
+                 3  11:00-12:30  sat-ds          3  Tree exercises            ds
+                 4  14:00-16:00  sat-os-hw       1  OS homework 3             os
 ```
 
 ### Commands
@@ -150,6 +150,7 @@ Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project    term (fallba
 | `task schedule skip <slot>` | Skips a slot's own work, this week |
 | `task schedule assign <slot> <task \| filter>` | Pins work to a slot, this week |
 | `task schedule reset <slot \| week>` | Undoes this week's changes |
+| `task schedule borrow <task> <hours>` | Gives a task more time this week, from the slots the template allows |
 | `task schedule event add <title> <date> <HH:MM-HH:MM>` | A one-time appointment |
 | `task schedule undo` / `task schedule log` | Undoes schedule changes, or lists them |
 | `task schedule help [<command> \| template]` | Built-in help |
@@ -161,7 +162,11 @@ For example, to study data structures on Doshanbe evening this week instead of S
 task schedule swap sat-ds mon-arch
 ```
 
-Changes apply to one week, and `task schedule undo` takes them back. Note that `task undo` does not undo schedule changes, and that the schedule is kept in its own files, so it does not sync with your tasks. Borrowing time, a weekly review, and temporary modes such as exam season are coming in the next versions.
+Changes apply to one week, and `task schedule undo` takes them back. Note that `task undo` does not undo schedule changes, and that the schedule is kept in its own files, so it does not sync with your tasks.
+
+Give tasks an estimate, such as `task add Paper project:research estimate:4h`, and the schedule plans enough slots for it, with a safety factor (1.5 in the example); time tracked with `task start` and `task stop` is taken off. When a task needs more, `task schedule borrow 12 2` takes two more hours from the slots the template lets it borrow, never below a category's weekly floor.
+
+A weekly review and temporary modes such as exam season are coming in the next versions.
 
 The full reference, with the template format and a worked example, is in [docs/schedule.md](../docs/schedule.md). To keep plain `task` as it was, run `task config schedule.default off`.
 

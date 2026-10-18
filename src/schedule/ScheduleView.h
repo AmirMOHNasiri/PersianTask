@@ -42,7 +42,14 @@ std::string describeDay(const Datetime&);
 std::string describePlace(const Datetime&, int start, int end);
 
 // A table of the assignments, with a Day column if days is true.
-std::string renderTable(const std::vector<Assignment>&, bool days);
+std::string renderTable(const std::vector<Assignment>&, bool days, Planner&);
+
+// The planned hours of each category, in template order.
+std::string renderHours(const Template&, const std::vector<Assignment>&, Planner&);
+
+// "2h (3h)": the estimate and the planned time, and what is left of it once
+// time has been tracked.
+std::string describeEffort(const Effort&);
 
 // The notes of a week and its plan, one line each.
 std::string renderNotes(const Week&, const Planner&);

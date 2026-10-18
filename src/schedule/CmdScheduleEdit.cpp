@@ -17,6 +17,7 @@
 
 #include <CmdSchedule.h>
 #include <Context.h>
+#include <ScheduleEffort.h>
 #include <ScheduleHelp.h>
 #include <SchedulePlanner.h>
 #include <ScheduleState.h>
@@ -271,6 +272,7 @@ int CmdSchedule::skip(std::vector<std::string> args, std::string& output) {
   o.skipped = true;
   o.task.clear();
   o.filter.clear();
+  o.borrowed = false;
 
   auto description = format("Skipped {1} ({2}): it now takes work from its fallback chain",
                             instance.id, describePlace(instance.day, instance.start, instance.end));
@@ -317,11 +319,136 @@ int CmdSchedule::assign(std::vector<std::string> args, std::string& output) {
     what = format("the filter '{1}'", filter);
   }
   o.skipped = false;
+  o.borrowed = false;
 
   auto description = format("Assigned {1} to {2} ({3})", what, instance.id,
                             describePlace(instance.day, instance.start, instance.end));
   change.commit(description);
   output = description + ".\n";
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// borrow <task> <hours> [week]
+//
+// Gives the task more time this week, taken from the slots named by the
+// template's borrow setting, in that order: a slot id, or a category's slots
+// in time order.  Only slots that start after now can lend, and never fixed,
+// rest, protected or event slots, or slots already assigned.  A category
+// lends only as long as its planned hours stay at or above its floor.
+int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
+  Change change;
+  auto day = takeWeek(args);
+  if (args.size() != 2) throw usageOf("borrow");
+
+  auto& first = args[0];
+  Task task;
+  bool found = std::all_of(first.begin(), first.end(), ::isdigit) && !first.empty()
+                   ? Context::getContext().tdb2.get(std::stoi(first), task)
+                   : looksLikeUuid(first) && Context::getContext().tdb2.get(first, task);
+  if (!found) throw format("There is no task {1}.", first);
+  if (task.getStatus() != Task::pending && task.getStatus() != Task::waiting)
+    throw format("Task {1} is not pending.", first);
+
+  auto needed = parseHours(args[1]);
+  if (needed <= 0) throw format("'{1}' is not a number of hours, such as 2 or 1.5h.", args[1]);
+
+  if (change.tmpl.borrow.empty())
+    throw std::string(
+        "The template has no borrow setting, which lists the slots that lend time, such as\n"
+        "'borrow = fri-buffer arch research'.  See 'task schedule help template'.");
+
+  Week week(change.tmpl, day, &change.state);
+  Planner planner(change.tmpl, week.reference());
+  auto assignments = planner.plan(week);
+  auto minutes = planner.minutesByCategory(assignments);
+  auto uuid = task.get("uuid");
+  // Never before the current time, even in a past week.
+  auto now = std::max(week.reference().toEpoch(), schedule::now().toEpoch());
+
+  std::vector<const Instance*> candidates;
+  for (auto& name : change.tmpl.borrow) {
+    if (auto slot = change.tmpl.slot(name)) {
+      if (auto instance = week.find(slot->id)) candidates.push_back(instance);
+    } else
+      for (auto& instance : week.instances)
+        if (!instance.event && instance.slot->category == name) candidates.push_back(&instance);
+  }
+
+  auto key = week.start.toEpoch();
+  long taken = 0;
+  std::vector<std::string> lent;
+  std::vector<std::string> floors;
+  for (auto instance : candidates) {
+    if (taken >= needed) break;
+
+    auto& slot = *instance->slot;
+    if (instance->event || slot.kind == Kind::fixed || slot.kind == Kind::rest ||
+        slot.isProtected || !instance->pinnedTask.empty() || !instance->pinnedFilter.empty())
+      continue;
+    if (instance->day.toEpoch() + instance->start * 60 < now) continue;
+    if (std::find_if(lent.begin(), lent.end(), [&](auto& l) {
+          return l.substr(0, instance->id.length() + 1) == instance->id + " ";
+        }) != lent.end())
+      continue;
+
+    // The category of the work the slot would have done.
+    auto assignment = std::find_if(assignments.begin(), assignments.end(),
+                                   [&](auto& a) { return a.instance == instance; });
+    std::string category;
+    if (assignment != assignments.end() && assignment->task) {
+      if (assignment->task->get("uuid") == uuid) continue;  // Already this task's.
+      category = assignment->source == Source::fallback ? assignment->via : slot.category;
+    }
+
+    if (auto c = change.tmpl.category(category)) {
+      if (c->floor >= 0 && (minutes[category] - instance->minutes()) < c->floor * 60) {
+        if (std::find(floors.begin(), floors.end(), category) == floors.end())
+          floors.push_back(category);
+        continue;
+      }
+      minutes[category] -= instance->minutes();
+    }
+
+    auto& o = change.state.at(key, instance->id);
+    o.task = uuid;
+    o.filter.clear();
+    o.skipped = false;
+    o.borrowed = true;
+    taken += instance->minutes() * 60L;
+    lent.push_back(format("{1} ({2}{3})", instance->id,
+                          describePlace(instance->day, instance->start, instance->end),
+                          category.empty() ? "" : ", from " + category));
+  }
+
+  std::string floorNote;
+  if (!floors.empty())
+    floorNote = format("  {1} kept at {2} floor.", join(", ", floors),
+                       floors.size() == 1 ? "its" : "their");
+
+  if (lent.empty())
+    throw format("No slot can lend time to task {1} {2}.  The borrow setting lists {3}; only "
+                 "slots that start later this week, and are not fixed, rest, protected or "
+                 "assigned, can lend.{4}",
+                 first,
+                 week.start.sameDay(schedule::now().startOfWeek()) ? "this week" : "that week",
+                 join(" ", change.tmpl.borrow), floorNote);
+
+  auto description = format("Borrowed {1} for task {2}, '{3}': {4}", formatHours(taken), first,
+                            task.get("description"), join(", ", lent));
+  change.commit(description);
+
+  std::stringstream out;
+  out << format("Borrowed {1} for task {2}, '{3}':\n", formatHours(taken), first,
+                task.get("description"));
+  for (auto& l : lent) out << "  " << l << '\n';
+  if (taken < needed)
+    out << format("Only {1} of {2} could be borrowed.{3}\n", formatHours(taken),
+                  formatHours(needed), floorNote);
+  else if (!floorNote.empty())
+    out << floorNote.substr(2) << '\n';
+  out << "'task schedule undo' gives the time back.\n";
+  output = out.str();
   return 0;
 }
 

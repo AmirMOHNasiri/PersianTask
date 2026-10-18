@@ -5,6 +5,8 @@ PersianTask can plan your week. You describe a typical week once, as a template 
 - [Quick start](#quick-start)
 - [How a slot gets its task](#how-a-slot-gets-its-task)
 - [Commands](#commands)
+- [Estimates](#estimates)
+- [Borrowing time](#borrowing-time)
 - [Changing one week](#changing-one-week)
 - [Where the schedule is stored](#where-the-schedule-is-stored)
 - [The template file](#the-template-file)
@@ -43,9 +45,11 @@ Slots get their tasks in two passes over the week, both in time order:
 
 The first pass comes first so that one slot's fallback never takes the task that another slot's own category was meant for.
 
-Only pending tasks are scheduled: not waiting tasks, and not tasks blocked by a dependency. Urgency is Taskwarrior's usual urgency, so priorities (`priority:H`), due dates, tags and the rest all count. A task fills at most `unestimated.per-day` slots a day (one, by default), so that a single task does not take over the whole day.
+Only pending tasks are scheduled: not waiting tasks, and not tasks blocked by a dependency. Urgency is Taskwarrior's usual urgency, so priorities (`priority:H`), due dates, tags and the rest all count. A task with an [estimate](#estimates) fills slots until its estimated time is planned. Any other task fills at most `unestimated.per-day` slots a day (one, by default), so that a single task does not take over the whole day.
 
 The schedule ignores the active Taskwarrior context (`task context`): slots always pull from all your tasks.
+
+Under the week, `Planned:` gives the hours of work planned for each category: the length of every slot that got a task, after this week's changes (so a swapped slot counts with its new length). A slot counts for the category its task came from: the slot's own category, the fallback step that found the task, or, for an assigned or borrowed task, the first category whose filter the task matches. Fixed slots, events and free slots do not count.
 
 ### Relative dates in filters
 
@@ -197,6 +201,52 @@ task schedule help template
 
 A quick reference, help on one command, or a summary of the template format.
 
+## Estimates
+
+Give a task an estimate, as a duration:
+
+```
+task add Paper draft project:research estimate:4h
+task 12 modify estimate:90min
+```
+
+The schedule then plans the estimate times `estimate.factor` (a template setting, 1.5 in the example), since work tends to take longer than expected. The `Estimate` column shows both: `4h (6h)`.
+
+The time still to plan is the planned time minus the time already tracked on the task with `task start` and `task stop`. Once time is tracked, the column shows what is left, as in `4h (6h), 2.5h left`, and a task past its planned time shows `over`.
+
+A task with time left takes slots, most urgent first, until that time is covered. Only the part of a slot after the current time counts: earlier slots this week still show their task, but do not use up its time, which is either tracked already or gone. A task with no estimate, or past it, takes at most `unestimated.per-day` slots a day.
+
+The estimate is the `estimate` UDA, defined by PersianTask as a duration. If you already have a UDA named `estimate` of another type, `task schedule check` (and `init`) says so: either make it a duration, or give the schedule another UDA:
+
+```
+task config schedule.estimate.uda effort
+task config uda.effort.type duration
+```
+
+Estimates are stored exactly as you write them; the factor is only applied when planning, so changing it later needs no change to your tasks.
+
+## Borrowing time
+
+```
+task schedule borrow 12 2
+task schedule borrow 12 1.5h next
+```
+
+When a task needs more time this week than its slots give, `borrow` takes other slots for it. It goes through the template's `borrow` setting in order:
+
+```
+borrow = fri-buffer arch wed-floating uptodate research
+```
+
+Each name is a slot, or a category, meaning that category's slots in time order. Whole slots are taken until the hours are covered. A slot can lend only if:
+
+- it starts after the current time,
+- it is not fixed, rest, protected (such as Friday afternoon), or an event,
+- it is not assigned to other work already,
+- and its category keeps its floor: a category lends only as long as its planned hours stay at or above its floor. Hours use each slot's length after this week's changes.
+
+Sleep is never borrowed from, since it is not a slot. `borrow` lists the slots it took, and says if it could not cover all the hours and which categories it kept at their floor. The borrowed slots show `borrowed` in the schedule. Borrowing is a change like any other: `task schedule undo` gives the time back, and `task schedule reset` frees a slot.
+
 ## Changing one week
 
 `swap`, `move`, `skip`, `assign` and `reset` change one week only, never the template. They change the current week, unless the command ends with a week:
@@ -217,7 +267,7 @@ The week you see is built in layers, each of which can change the one before:
 1. **The template**: the slots and their categories.
 2. **Modes**, such as exam season. *(Coming in a later version.)*
 3. **This week's changes**: move, swap, skip and assign. A change made for a week always wins over the template and over modes.
-4. **Borrowing**, which gives a task extra time from other slots. *(Coming in a later version.)*
+4. **Borrowing**, which gives a task extra time from other slots. It never takes a slot changed by hand.
 
 `skip` and `assign` replace each other on a slot: the last one made counts. A moved slot keeps what it was assigned.
 
@@ -259,8 +309,8 @@ borrow              = fri-buffer arch wed-floating uptodate research
 |---|---|
 | `fallback` | The global fallback chain: category names, tried in order. `rest` (which must come last) leaves the slot free. |
 | `unestimated.per-day` | How many slots a day a task may fill. The default is 1. |
-| `estimate.factor` | Planned time for a task is its estimate times this factor. *Checked now; used once estimates are supported.* |
-| `borrow` | Slots or categories that lend time to a task that needs more than its slot, in order. *Checked now; used once borrowing is supported.* |
+| `estimate.factor` | Planned time for a task is its [estimate](#estimates) times this factor. The default is 1. |
+| `borrow` | Slots or categories that [lend time](#borrowing-time) to a task that needs more, in order. |
 
 ### [categories]
 
@@ -275,7 +325,7 @@ term        -       +term
 One category per line: a name, a floor, and a filter.
 
 - The **name** is used by slots, fallback chains, borrowing and modes. It uses letters, digits, `-` and `_`.
-- The **floor** is the minimum number of hours a week the category should get, or `-` for none. *Checked now; used by the weekly review once it is supported.*
+- The **floor** is the minimum number of hours a week the category should get, or `-` for none. [Borrowing](#borrowing-time) never takes a category below its floor.
 - The **filter** is the rest of the line, written exactly as on the Taskwarrior command line: `project:os`, `+term`, `project:os +homework`, `due.before:now+7d`, `description.has:"two words"`, and so on. In a filter, `now` means the time of the week being planned (see [Relative dates in filters](#relative-dates-in-filters)).
 
 ### Days: [shanbe] to [jome]
@@ -305,7 +355,7 @@ A section for each day, named in Finglish: `[shanbe]`, `[yekshanbe]`, `[doshanbe
 | `filter:"..."` | Pull tasks with this filter instead of the category's. The category is still the slot's category, for planning. Inside the double quotes, quote a phrase with single quotes: `filter:"description.has:'two words'"`. |
 | `fallback:"..."` | This slot's own fallback chain, replacing the global one. |
 | `optional` | Shown dimmed, and counted as planned time only when it gets a task. |
-| `protected` | Never lends its time to another task. *Checked now; used once borrowing is supported.* |
+| `protected` | Never lends its time to another task, and never moves. |
 
 Fixed and rest slots never take tasks, so they cannot have `filter:` or `fallback:`.
 
@@ -349,6 +399,7 @@ These go in `.taskrc`, and can be set with `task config`:
 | `schedule.wake` | `06:00` | The start of the day, `wake` in templates. |
 | `schedule.sleep` | `24:00` | The end of the day, `sleep` in templates. |
 | `schedule.report` | `important` | The report below today's schedule, or `none`. |
+| `schedule.estimate.uda` | `estimate` | The UDA holding [estimates](#estimates). It must be a duration. |
 | `dateformat.schedule` | `A d B Y` | The date format of the schedule's headers. |
 | `color.schedule.header` | `bold` | Color of the day headers. |
 | `color.schedule.now` | `bold green` | Color of the current slot. |
@@ -371,7 +422,7 @@ Its categories pull tasks by project: `os` is `project:os`, `ds` is `project:ds`
 
 ```
 $ task add OS homework 3 project:os +homework due:1405-07-29
-$ task add Paper draft project:research priority:H
+$ task add Paper draft project:research priority:H estimate:2h
 $ task add Tree exercises project:ds
 $ task add Term project +term due:1405-09-10
 ```
@@ -382,13 +433,15 @@ Then look at Shanbe:
 $ task schedule week
 Week 31: Shanbe 25 Mehr 1405 - Jome 1 Aban 1405
 
-Day              #  Time         Slot           ID  Task            From
-Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project    term (fallback)
-                 2  07:30-10:30  sat-research    2  Paper draft     research
-                 3  11:00-12:30  sat-ds          3  Tree exercises  ds
-                 4  14:00-16:00  sat-os-hw       1  OS homework 3   os
-                 5  21:00-21:45  sat-uptodate                       rest
+Day              #  Time         Slot           ID  Task            Estimate  From
+Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project              term (fallback)
+                 2  07:30-10:30  sat-research    2  Paper draft     2h (3h)   research
+                 3  11:00-12:30  sat-ds          3  Tree exercises            ds
+                 4  14:00-16:00  sat-os-hw       1  OS homework 3             os
+                 5  21:00-21:45  sat-uptodate                                 rest
 ```
+
+- `sat-research` takes the paper draft. Its estimate of 2h becomes 3h of planned time (`estimate.factor = 1.5`), which this 3-hour slot covers, so the other research slots of the week are free for other research tasks.
 
 - `sat-research`, `sat-ds` and `sat-os-hw` each take their own category's task. `sat-os-hw` only takes OS tasks tagged `+homework`, because of its `filter:` option.
 - `sat-review` has no review task to do, so it goes down the fallback chain, `soon term ds arch rest`. The OS homework is due soon, but it already has its slot today, so the next step, `term`, gives the term project.

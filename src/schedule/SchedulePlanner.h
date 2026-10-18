@@ -70,6 +70,9 @@ struct Instance {
   bool skipped{false};
   std::string pinnedTask;  // UUID.
   std::string pinnedFilter;
+  bool borrowed{false};
+
+  int minutes() const { return end - start; }  // After this week's changes.
 };
 
 // The slots of the week containing a day.  Weeks start on the configured
@@ -107,10 +110,20 @@ enum class Source {
   fixed,     // A fixed slot, which never takes a task.
   rest,      // A rest slot, or 'rest' in the fallback chain.
   pinned,    // Assigned with 'task schedule assign'.
+  borrowed,  // Lent to a task with 'task schedule borrow'.
   event,     // A one-time event.
   slot,      // The slot's own filter.
   fallback,  // A category in the fallback chain.
   none       // Nothing matched.
+};
+
+// A task's estimate, in seconds.  Planned is the estimate times the
+// template's estimate.factor, and remaining is planned minus tracked time.
+struct Effort {
+  long estimate{-1};  // -1 for none.
+  long planned{0};
+  long tracked{0};
+  long remaining{0};
 };
 
 struct Assignment {
@@ -137,8 +150,20 @@ class Planner {
   // longer pending.
   std::vector<std::string> notes;
 
+  const Effort& effort(const Task&);
+
+  // Minutes of work for each category, using each slot's duration after this
+  // week's changes.  Fixed slots, events and free slots do not count.
+  std::map<std::string, int> minutesByCategory(const std::vector<Assignment>&);
+
+  // The category of a task: the first category, in template order, whose
+  // filter it matches, or an empty string.
+  std::string categoryOf(const Task&);
+
  private:
-  std::optional<Task> pick(const std::string& filter, const Datetime& day);
+  std::optional<Task> pick(const std::string& filter, const Instance&);
+  void use(const Task&, const Instance&);
+  bool available(const Task&, const Instance&);
 
   const Template& _template;
   Datetime _reference;
@@ -146,6 +171,8 @@ class Planner {
   std::vector<Task> _pending;  // Those that can be worked on now.
   std::map<std::string, std::vector<Task>> _cache;
   std::map<std::pair<std::string, time_t>, int> _used;  // Slots per task (uuid) per day.
+  std::map<std::string, Effort> _efforts;                // By uuid.
+  std::map<std::string, long> _left;                     // Remaining, during plan().
 };
 
 // The current time.  The setting rc.schedule.now exists only for the tests,

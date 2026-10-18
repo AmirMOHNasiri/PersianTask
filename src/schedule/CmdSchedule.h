@@ -35,6 +35,7 @@ class CmdSchedule : public Command {
   int skip(std::vector<std::string>, std::string&);
   int assign(std::vector<std::string>, std::string&);
   int reset(std::vector<std::string>, std::string&);
+  int borrow(std::vector<std::string>, std::string&);
   int event(std::vector<std::string>, std::string&);
   int undo(std::string&);
   int log(std::string&);

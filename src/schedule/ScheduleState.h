@@ -31,6 +31,7 @@ struct Override {
   bool skipped{false};
   std::string task;    // Pinned task, by UUID.
   std::string filter;  // Pinned filter.
+  bool borrowed{false};  // The pinned task borrowed this slot.
 
   bool empty() const;
 };

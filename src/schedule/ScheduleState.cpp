@@ -109,6 +109,7 @@ std::unique_ptr<json::value> parse(const std::string& contents, const std::strin
 ////////////////////////////////////////////////////////////////////////////////
 bool Override::empty() const { return !moved && !skipped && task.empty() && filter.empty(); }
 
+
 ////////////////////////////////////////////////////////////////////////////////
 std::string State::statePath() { return dataPath("schedule.state.json"); }
 
@@ -153,6 +154,7 @@ std::string State::toJSON() const {
       if (!o.swappedWith.empty()) fields.push_back("\"swap\": " + quote(o.swappedWith));
       if (o.skipped) fields.push_back("\"skip\": true");
       if (!o.task.empty()) fields.push_back("\"task\": " + quote(o.task));
+      if (o.borrowed) fields.push_back("\"borrowed\": true");
       if (!o.filter.empty()) fields.push_back("\"filter\": " + quote(o.filter));
 
       std::string joined;
@@ -199,6 +201,7 @@ void State::fromJSON(const std::string& contents) {
         o.swappedWith = text(slot.second, "swap");
         o.skipped = flag(slot.second, "skip");
         o.task = text(slot.second, "task");
+        o.borrowed = flag(slot.second, "borrowed");
         o.filter = text(slot.second, "filter");
         weeks[start][slot.first] = o;
       }

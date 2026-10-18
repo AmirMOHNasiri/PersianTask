@@ -36,6 +36,7 @@ class Task:
             rc.write("verbose=nothing\n")
             rc.write("news.version=99.0.0\n")
             rc.write("hooks=off\n")
+            rc.write("defaultwidth=200\n")  # So that tables do not wrap.
         # The default configuration includes a theme, which is looked up in the
         # current directory, so task is run from here.
         shutil.copy(os.path.join(HERE, "..", "doc", "rc", "default.theme"), self.dir)

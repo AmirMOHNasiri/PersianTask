@@ -80,6 +80,42 @@ soon   -   due.before:now+7d
 """
 
 
+BORROW = """
+[settings]
+fallback = rest
+borrow   = sat-buf arch res
+
+[categories]
+os     -   project:os
+arch   1   project:arch
+res    3   project:res
+
+[shanbe]
+08:00-09:00  sat-res   study   res
+09:00-10:00  sat-fix   fixed   os
+10:00-11:00  sat-arch  study   arch
+12:00-13:00  sat-buf   buffer  -
+13:00-14:00  sat-prot  study   arch   protected
+
+[yekshanbe]
+08:00-10:00  sun-res   study   res
+10:00-11:00  sun-arch  study   arch
+18:00-sleep  sun-rest  rest    -
+"""
+
+
+def planned(output):
+    """{category: hours} from the 'Planned:' line of a week."""
+    for line in output.splitlines():
+        if line.startswith("Planned: "):
+            result = {}
+            for part in line[len("Planned: "):].split(", "):
+                name, hours = part.rsplit(" ", 1)
+                result[name] = hours
+            return result
+    return {}
+
+
 SMALL = """
 [settings]
 fallback = soon term rest
@@ -668,6 +704,201 @@ def test_state_files(task):
     check_true("A damaged state is reported", code != 0 and "damaged" in err, err)
 
 
+def test_time_reads(task):
+    """Date parsing, filters and urgency must read the time through
+    Datetime::currentTime, so that the schedule can evaluate them as of
+    another week.  Only write-time stamps may read the clock directly."""
+    allowed = {("src/libshared/src/Datetime.cpp", "Datetime::currentTime"),
+               ("src/Task.cpp", "Task::setAsNow"),
+               ("src/Task.cpp", "Task::addAnnotation")}
+    files = ["src/libshared/src/Datetime.cpp", "src/Variant.cpp", "src/Eval.cpp",
+             "src/Filter.cpp", "src/Task.cpp"]
+
+    found = []
+    for name in files:
+        function = None
+        with open(os.path.join(ROOT, name)) as f:
+            for number, line in enumerate(f, 1):
+                definition = re.match(r"^[\w:<>&*, ]*?\b(\w+::~?\w+)\s*\(", line)
+                if definition and not line.startswith(" "):
+                    function = definition.group(1)
+                if re.search(r"\btime\s*\(\s*(nullptr|NULL|0)\s*\)", line):
+                    if (name, function) not in allowed:
+                        found.append("{}:{} in {}".format(name, number, function))
+    check("No direct clock reads outside write-time stamps", found, [])
+
+
+def test_swap_durations(task):
+    """Hours use each slot's duration after this week's changes."""
+    write_template(task, """
+[categories]
+res   -   project:res
+ds    -   project:ds
+
+[shanbe]
+08:00-11:00  sat-res  study  res
+14:00-15:30  sat-ds   study  ds
+""")
+    task.out("add", "R1", "project:res")
+    task.out("add", "D1", "project:ds")
+
+    check("Planned hours follow the template", planned(task.out(NOW, "schedule", "week")),
+          {"res": "3h", "ds": "1.5h"})
+    task.out(NOW, "schedule", "swap", "sat-res", "sat-ds")
+    check("Planned hours follow a swap", planned(task.out(NOW, "schedule", "week")),
+          {"res": "1.5h", "ds": "3h"})
+
+
+def test_estimates(task):
+    write_template(task, """
+[settings]
+estimate.factor = 1.5
+fallback = rest
+
+[categories]
+os   -   project:os
+
+[shanbe]
+08:00-09:00  a  study  os
+09:00-10:00  b  study  os
+10:00-11:00  c  study  os
+11:00-12:00  d  study  os
+[yekshanbe]
+08:00-09:00  e  study  os
+""")
+    task.out("add", "Big", "project:os", "priority:H", "estimate:2h")
+    task.out("add", "Small", "project:os")
+
+    out = task.out("rc.schedule.now:2026-10-17T06:00:00", "schedule", "week")
+    found = slots(out)
+    check("The estimate shows with its planned time", found.get("a"), ("1", "Big", "2h (3h) os"))
+    check("An estimated task fills slots until its planned time",
+          [found.get(s, ("", ""))[1] for s in "abcd"], ["Big", "Big", "Big", "Small"])
+    check("An unestimated task takes one slot a day", found.get("e", ("", ""))[1], "Small")
+
+
+def test_tracked_time(task):
+    write_template(task, """
+[settings]
+estimate.factor = 1.5
+fallback = rest
+
+[categories]
+os   -   project:os
+
+[shanbe]
+13:00-14:00  a  study  os
+14:00-15:00  b  study  os
+15:00-16:00  c  study  os
+""")
+    task.out("add", "Worked", "project:os", "estimate:1h")
+    task.out("1", "start")
+    task.out("1", "modify", "start:now-1h")
+    task.out("1", "stop")
+
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("Tracked time reduces what is left", found.get("a", ("", "", ""))[2], "1h (1.5h), 30min left os")
+    check("Only what is left is planned", [found.get(s, ("", ""))[1] for s in "abc"], ["Worked", "", ""])
+
+    task.out("1", "modify", "estimate:30min")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("A task past its estimate says so", found.get("a", ("", "", ""))[2], "30min (45min), over os")
+    check("A task past its estimate takes one slot a day",
+          [found.get(s, ("", ""))[1] for s in "abc"], ["Worked", "", ""])
+
+
+def test_estimates_from_now(task):
+    """Slots already past do not use up the estimate."""
+    write_template(task, """
+[settings]
+estimate.factor = 1
+fallback = rest
+
+[categories]
+os   -   project:os
+
+[shanbe]
+08:00-09:00  a  study  os
+13:00-14:00  b  study  os
+14:00-15:00  c  study  os
+15:00-16:00  d  study  os
+""")
+    task.out("add", "Big", "project:os", "estimate:2h")
+    found = slots(task.out(NOW, "schedule", "week"))  # NOW is 12:00.
+    check("Past slots show the task but do not use up its estimate",
+          [found.get(s, ("", ""))[1] for s in "abcd"], ["Big", "Big", "Big", ""])
+
+
+def test_estimate_uda(task):
+    write_template(task, SMALL)
+    task.out("add", "E1", "project:os", "estimate:2h")
+
+    code, out, _ = task.run("rc.uda.estimate.type:numeric", "schedule", "check")
+    check_true("check reports an estimate UDA that is not a duration",
+               code != 0 and "as a numeric" in out and "schedule.estimate.uda" in out, out)
+    out = task.out(NOW, "rc.uda.estimate.type:numeric", "schedule", "week")
+    check_true("The week notes that estimates are ignored", "estimates are ignored" in out, out)
+
+    code, out, _ = task.run("rc.schedule.estimate.uda:effort", "schedule", "check")
+    check_true("check reports an undefined estimate UDA",
+               code != 0 and "uda.effort.type duration" in out, out)
+
+    task.out("rc.uda.effort.type:duration", "add", "E2", "project:os", "effort:1h")
+    out = task.out(NOW, "rc.uda.effort.type:duration", "rc.schedule.estimate.uda:effort",
+                   "schedule", "week")
+    check_true("Estimates come from the configured UDA", "1h (1h)" in out and "2h (2h)" not in out, out)
+
+    os.remove(os.path.join(task.dir, "data", "schedule"))
+    out = task.out("rc.uda.estimate.type:numeric", "schedule", "init")
+    check_true("init explains a conflicting estimate UDA", "Note:" in out and "numeric" in out, out)
+
+
+def test_borrow(task):
+    write_template(task, BORROW)
+    task.out("add", "OS1", "project:os")
+    task.out("add", "Res1", "project:res", "estimate:10h")
+    task.out("add", "Arch1", "project:arch")
+    early = "rc.schedule.now:2026-10-17T06:00:00"
+
+    out = task.out(early, "schedule", "borrow", "1", "4")
+    lent = re.findall(r"^  (\S+) ", out, re.MULTILINE)
+    check("borrow follows the borrow order and respects floors", lent, ["sat-buf", "sat-arch"])
+    check_true("borrow reports a shortfall", "Only 2h of 4h" in out, out)
+    check_true("borrow names the categories kept at their floor",
+               "arch, res kept at their floor" in out, out)
+
+    found = slots(task.out(early, "schedule", "week"))
+    check("Borrowed slots work on the task", found.get("sat-arch"), ("1", "OS1", "borrowed"))
+
+    task.out(early, "schedule", "undo")
+    check_true("undo gives borrowed time back", "borrowed" not in task.out(early, "schedule", "week"))
+
+    out = task.out("rc.schedule.now:2026-10-17T12:30:00", "schedule", "borrow", "1", "1")
+    check("borrow only takes slots from now on", re.findall(r"^  (\S+) ", out, re.MULTILINE),
+          ["sun-arch"])
+    task.out(NOW, "schedule", "reset", "week")
+
+    task.out(early, "schedule", "assign", "sat-buf", "3")
+    out = task.out(early, "schedule", "borrow", "1", "1")
+    check("borrow never takes an assigned slot", re.findall(r"^  (\S+) ", out, re.MULTILINE),
+          ["sat-arch"])
+    task.out(early, "schedule", "reset", "week")
+
+    task.out(early, "schedule", "swap", "sat-buf", "sun-res")
+    out = task.out(early, "schedule", "borrow", "1", "1.5h")
+    check_true("borrow uses durations after a swap", "Borrowed 2h" in out and "sat-buf" in out, out)
+    task.out(early, "schedule", "reset", "week")
+
+    for args, text in [(["99", "1"], "no task 99"), (["1", "zero"], "not a number of hours"),
+                       (["1", "1", "prev"], "No slot can lend")]:
+        code, out, err = task.run(early, "schedule", "borrow", *args)
+        check_true("borrow {} fails: {}".format(" ".join(args), text), code != 0 and text in err, err)
+
+    write_template(task, BORROW.replace("borrow   = sat-buf arch res\n", ""))
+    code, out, err = task.run(early, "schedule", "borrow", "1", "1")
+    check_true("borrow needs a borrow setting", code != 0 and "no borrow setting" in err, err)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -676,4 +907,6 @@ if __name__ == "__main__":
                         test_viewing_writes_nothing, test_swap, test_move,
                         test_skip_and_assign, test_precedence, test_reset, test_events,
                         test_undo_and_log, test_dangling_references, test_state_files,
+                        test_time_reads, test_swap_durations, test_estimates, test_tracked_time,
+                        test_estimates_from_now, test_estimate_uda, test_borrow,
                         test_help], fresh=True))

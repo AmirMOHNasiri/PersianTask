@@ -15,6 +15,7 @@
 #include <CmdSchedule.h>
 #include <Context.h>
 #include <FS.h>
+#include <ScheduleEffort.h>
 #include <ScheduleExample.h>
 #include <ScheduleHelp.h>
 #include <SchedulePlanner.h>
@@ -145,6 +146,7 @@ int CmdSchedule::execute(std::string& output) {
   if (name == "skip") return skip(args, output);
   if (name == "assign") return assign(args, output);
   if (name == "reset") return reset(args, output);
+  if (name == "borrow") return borrow(args, output);
   if (name == "event") return event(args, output);
   if (name == "undo") {
     if (!args.empty()) throw usage();
@@ -198,7 +200,7 @@ int CmdSchedule::today(std::string& output) {
     if (todays.empty())
       out << "No slots today.\n";
     else
-      out << renderTable(todays, false);
+      out << renderTable(todays, false, planner);
     out << renderNotes(week, planner);
   }
 
@@ -254,7 +256,11 @@ int CmdSchedule::week(const std::vector<std::string>& args, std::string& output)
   std::stringstream out;
   out << '\n'
       << configColor("color.schedule.header").colorize(week.label()) << "\n\n"
-      << renderTable(assignments, true) << renderNotes(week, planner);
+      << renderTable(assignments, true, planner) << '\n'
+      << renderHours(tmpl, assignments, planner) << renderNotes(week, planner);
+
+  auto udaProblem = estimateUdaProblem();
+  if (!udaProblem.empty()) out << "Note: estimates are ignored.  " << udaProblem << '\n';
   output = out.str();
   return 0;
 }
@@ -288,6 +294,9 @@ int CmdSchedule::init(const std::vector<std::string>& args, std::string& output)
       "See 'task schedule help' for the commands, and 'task schedule help template' for\n"
       "the format.\n",
       path, which == "example" ? ", from the example of a university student's week" : "");
+
+  auto udaProblem = estimateUdaProblem();
+  if (!udaProblem.empty()) output += "\nNote: " + udaProblem + '\n';
   return 0;
 }
 
@@ -316,6 +325,9 @@ int CmdSchedule::check(std::string& output) {
     for (auto& slot : tmpl.slots)
       if (!slot.filter.empty()) tryFilter(slot.filter, slot.line, "slot '" + slot.id + "'");
   }
+
+  auto udaProblem = estimateUdaProblem();
+  if (!udaProblem.empty()) tmpl.problems.push_back({0, udaProblem});
 
   std::stringstream out;
   if (!tmpl.problems.empty()) {

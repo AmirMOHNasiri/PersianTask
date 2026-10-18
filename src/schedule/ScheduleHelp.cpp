@@ -83,6 +83,14 @@ const std::vector<HelpEntry>& helpEntries() {
        {"task schedule assign wed-floating 12",
         "task schedule assign fri-buffer project:os +homework"}},
 
+      {"borrow", "<task> <hours> [next | prev | week:<date>]",
+       "Gives a task more time this week, from other slots",
+       "Takes whole slots for the task, from the template's borrow setting, in that\n"
+       "order, until the hours are covered.  Only slots later than now can lend, never\n"
+       "fixed, rest, protected or assigned ones, and a category lends only down to its\n"
+       "floor.  Shows which slots were taken; 'task schedule undo' gives them back.",
+       {"task schedule borrow 12 2", "task schedule borrow 12 1.5h next"}},
+
       {"reset", "<slot | week> [next | prev | week:<date>]",
        "Undoes this week's changes to a slot, or to the whole week",
        "The slot goes back to its place and work in the template.  If it was swapped,\n"

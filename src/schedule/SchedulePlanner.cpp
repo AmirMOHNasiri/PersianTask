@@ -14,6 +14,7 @@
 #include <Context.h>
 #include <Filter.h>
 #include <Lexer.h>
+#include <ScheduleEffort.h>
 #include <SchedulePlanner.h>
 #include <format.h>
 
@@ -113,6 +114,7 @@ Week::Week(const Template& tmpl, const Datetime& day, const State* state)
         instance->skipped = o.skipped;
         instance->pinnedTask = o.task;
         instance->pinnedFilter = o.filter;
+        instance->borrowed = o.borrowed;
       }
     }
 
@@ -230,22 +232,105 @@ std::vector<Task> Planner::matching(const std::string& filter) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// The most urgent task matching the filter that still has room on that day.
-std::optional<Task> Planner::pick(const std::string& filter, const Datetime& day) {
-  for (auto& task : matching(filter)) {
-    auto& used = _used[{task.get("uuid"), day.toEpoch()}];
-    if (used < _template.unestimatedPerDay) {
-      ++used;
-      return task;
+const Effort& Planner::effort(const Task& task) {
+  auto uuid = task.get("uuid");
+  auto found = _efforts.find(uuid);
+  if (found != _efforts.end()) return found->second;
+
+  Effort effort;
+  effort.estimate = schedule::estimate(task);
+  if (effort.estimate > 0) {
+    effort.planned = static_cast<long>(effort.estimate * _template.estimateFactor + 0.5);
+    effort.tracked = schedule::tracked(task);
+    effort.remaining = effort.planned - effort.tracked;
+  }
+  return _efforts[uuid] = effort;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// A task with remaining estimated time takes slots until that time is
+// planned.  Any other task, with no estimate or past its estimate, takes at
+// most unestimated.per-day slots a day.
+bool Planner::available(const Task& task, const Instance& instance) {
+  auto uuid = task.get("uuid");
+  if (effort(task).remaining > 0) {
+    if (!_left.count(uuid)) _left[uuid] = effort(task).remaining;
+    if (_left[uuid] > 0) return true;
+    return false;
+  }
+
+  return _used[{uuid, instance.day.toEpoch()}] < _template.unestimatedPerDay;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Only the part of a slot after the reference time plans new work: earlier
+// time is either tracked already, or gone.
+void Planner::use(const Task& task, const Instance& instance) {
+  auto uuid = task.get("uuid");
+  ++_used[{uuid, instance.day.toEpoch()}];
+
+  if (effort(task).remaining > 0) {
+    auto start = instance.day.toEpoch() + instance.start * 60;
+    auto end = instance.day.toEpoch() + instance.end * 60;
+    auto from = std::max<time_t>(start, _reference.toEpoch());
+    if (end > from) {
+      if (!_left.count(uuid)) _left[uuid] = effort(task).remaining;
+      _left[uuid] -= end - from;
     }
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// The most urgent task matching the filter that is still available.
+std::optional<Task> Planner::pick(const std::string& filter, const Instance& instance) {
+  for (auto& task : matching(filter))
+    if (available(task, instance)) {
+      use(task, instance);
+      return task;
+    }
 
   return std::nullopt;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+std::string Planner::categoryOf(const Task& task) {
+  auto uuid = task.get("uuid");
+  for (auto& category : _template.categories)
+    for (auto& t : matching(category.filter))
+      if (t.get("uuid") == uuid) return category.name;
+  return "";
+}
+
+////////////////////////////////////////////////////////////////////////////////
+std::map<std::string, int> Planner::minutesByCategory(const std::vector<Assignment>& assignments) {
+  std::map<std::string, int> minutes;
+  for (auto& assignment : assignments) {
+    if (!assignment.task) continue;
+
+    std::string category;
+    switch (assignment.source) {
+      case Source::slot:
+        category = assignment.instance->slot->category;
+        break;
+      case Source::fallback:
+        category = assignment.via;
+        break;
+      case Source::pinned:
+      case Source::borrowed:
+        category = categoryOf(*assignment.task);
+        break;
+      default:
+        break;
+    }
+    if (!category.empty()) minutes[category] += assignment.instance->minutes();
+  }
+  return minutes;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 std::vector<Assignment> Planner::plan(const Week& week) {
   _used.clear();
+  _left.clear();
   notes.clear();
 
   auto takesTasks = [](const Instance& instance) {
@@ -281,10 +366,10 @@ std::vector<Assignment> Planner::plan(const Week& week) {
         continue;
       }
       assignment.task = *task;
-      assignment.source = Source::pinned;
-      ++_used[{instance.pinnedTask, instance.day.toEpoch()}];
+      assignment.source = instance.borrowed ? Source::borrowed : Source::pinned;
+      use(*task, instance);
     } else if (!instance.pinnedFilter.empty()) {
-      assignment.task = pick(instance.pinnedFilter, instance.day);
+      assignment.task = pick(instance.pinnedFilter, instance);
       if (assignment.task) assignment.source = Source::pinned;
     }
   }
@@ -299,7 +384,7 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     auto filter = _template.filterFor(*instance.slot);
     if (filter.empty()) continue;
 
-    assignment.task = pick(filter, instance.day);
+    assignment.task = pick(filter, instance);
     if (assignment.task) {
       assignment.source = Source::slot;
       assignment.via = instance.slot->category;
@@ -320,7 +405,7 @@ std::vector<Assignment> Planner::plan(const Week& week) {
       auto category = _template.category(step);
       if (!category) continue;
 
-      assignment.task = pick(category->filter, instance.day);
+      assignment.task = pick(category->filter, instance);
       if (assignment.task) {
         assignment.source = Source::fallback;
         assignment.via = step;
