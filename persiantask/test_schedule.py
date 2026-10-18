@@ -245,6 +245,77 @@ def test_context_ignored(task):
     check("Slots ignore the active context", found.get("a-os", ("", ""))[1], "OS1")
 
 
+def test_relative_filters(task):
+    """'now' in a filter means rc.schedule.now for this week, and the start of
+    the week for other weeks."""
+    write_template(task, """
+[settings]
+fallback = soon rest
+
+[categories]
+soon  -  due.after:now due.before:now+7d
+
+[shanbe]
+09:00-10:00  sat-buf  buffer  -
+""")
+    task.out("add", "ThisWeek", "due:2026-10-20")   # Within 7 days of NOW.
+    task.out("add", "NextWeek", "due:2026-10-28")   # Within 7 days of next Shanbe.
+    task.out("add", "LastWeek", "due:2026-10-13")   # Within 7 days of last Shanbe.
+
+    for args, expected in [([], "ThisWeek"), (["next"], "NextWeek"), (["prev"], "LastWeek")]:
+        found = slots(task.out(NOW, "schedule", "week", *args))
+        check("Filters in week {} are relative to that week".format(" ".join(args) or "(this)"),
+              found.get("sat-buf", ("", ""))[1], expected)
+
+
+def test_quoted_filters(task):
+    """Filters are re-tokenized, so quoted strings with spaces must survive."""
+    write_template(task, """
+[categories]
+two    -   description.has:"two words"
+other  -   project:nothing
+
+[shanbe]
+09:00-10:00  sat-two    study  two
+10:00-11:00  sat-other  study  other  filter:"description.has:'other words'"
+""")
+    task.out("add", "has two words here")
+    task.out("add", "with other words inside")
+    task.out("add", "two and words apart")
+
+    out = task.out(NOW, "schedule", "week")
+    check_true("A category filter with a quoted phrase", "has two words here" in out
+               and "two and words apart" not in out, out)
+    check_true("A slot filter with a quoted phrase", "with other words inside" in out, out)
+    code, out, _ = task.run("schedule", "check")
+    check_true("check accepts quoted filters", code == 0, out)
+
+
+def test_tasks_alias(task):
+    task.out("add", "One")
+    task.out("add", "Two")
+
+    check("task tasks runs default.command", task.out("rc.default.command:count", "tasks"), "2")
+    check_true("task tasks is the next report by default", "One" in task.out("tasks"))
+    check_true("task tasks never runs the schedule",
+               "One" in task.out("rc.default.command:schedule", "tasks"))
+    check("A user's own alias.tasks is kept",
+          task.out("rc.alias.tasks:count", "rc.default.command:next", "tasks"), "2")
+
+
+def test_plain_task_with_problems(task):
+    write_template(task, SMALL + "\n09:00-09:30  bad  studdy  os\n")
+    task.out("add", "Urgent", "priority:H")
+
+    code, out, _ = task.run(NOW)
+    check("Plain task succeeds when the template has problems", code, 0)
+    check_true("Plain task shows the problems note and the report",
+               "task schedule check" in out and "Urgent" in out, out)
+
+    code, out, _ = task.run(NOW, "schedule")
+    check_true("task schedule fails when the template has problems", code != 0, code)
+
+
 def test_today_and_plain_task(task):
     write_template(task, SMALL)
     task.out("add", "OS1", "project:os")
@@ -329,5 +400,6 @@ def test_help(task):
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
-                        test_context_ignored, test_today_and_plain_task,
+                        test_context_ignored, test_relative_filters, test_quoted_filters,
+                        test_tasks_alias, test_plain_task_with_problems, test_today_and_plain_task,
                         test_viewing_writes_nothing, test_help], fresh=True))

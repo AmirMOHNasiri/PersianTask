@@ -2041,7 +2041,7 @@ void Variant::cast(const enum type new_type) {
         // TODO: Not exactly correct (should duration convert into date?), but
         // currently needed for symmetry, which is assumed by operators.
         case type_duration:
-          _duration = _date - time(nullptr);
+          _duration = _date - Datetime::currentTime();
           break;
       }
       break;
@@ -2061,7 +2061,7 @@ void Variant::cast(const enum type new_type) {
           _string = (std::string) * this;
           break;
         case type_date:
-          _date = time(nullptr) + _duration;
+          _date = Datetime::currentTime() + _duration;
           break;
         case type_duration:
           break;

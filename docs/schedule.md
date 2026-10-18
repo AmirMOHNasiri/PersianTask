@@ -45,6 +45,16 @@ Only pending tasks are scheduled: not waiting tasks, and not tasks blocked by a 
 
 The schedule ignores the active Taskwarrior context (`task context`): slots always pull from all your tasks.
 
+### Relative dates in filters
+
+Filters and urgency are evaluated as of the week being planned. In the current week, `now` (and `today`, `eow`, `now+7d`, and so on) means the current time. In any other week, it means the start of that week. So with the category
+
+```
+soon   -   due.after:now due.before:now+7d
+```
+
+`task schedule week` fills slots with tasks due in the coming seven days, and `task schedule week next` with tasks due in the seven days after next Shanbe. Urgency, which ranks the tasks, is computed as of the same time.
+
 Viewing the schedule never changes anything: `task schedule`, `task schedule week`, `task schedule check` and plain `task` only read your tasks and the template.
 
 ## Commands
@@ -60,7 +70,9 @@ Today's slots in time order, with the task each one gets. The current slot is hi
 
 Below the slots comes the report named by `schedule.report`, by default `important`: tasks due today or overdue, and tasks with high priority (`priority:H`), however far away their due date is.
 
-**Plain `task`** shows the same, when a template exists and `schedule.default` is on. With no template, or with any filter or command, `task` behaves exactly as in Taskwarrior. `task tasks` always shows the normal task list (the `next` report).
+**Plain `task`** shows the same, when a template exists and `schedule.default` is on. With no template, or with any filter or command, `task` behaves exactly as in Taskwarrior. If the template has mistakes, plain `task` says so and shows the report, but still succeeds, so that shell greetings and scripts calling `task` never fail because of the schedule.
+
+`task tasks` always shows your usual task list: it runs your `default.command` (the `next` report, unless you changed it). To make it run something else, define `alias.tasks` yourself.
 
 ### task schedule week
 
@@ -144,7 +156,7 @@ One category per line: a name, a floor, and a filter.
 
 - The **name** is used by slots, fallback chains, borrowing and modes. It uses letters, digits, `-` and `_`.
 - The **floor** is the minimum number of hours a week the category should get, or `-` for none. *Checked now; used by the weekly review once it is supported.*
-- The **filter** is the rest of the line, written exactly as on the Taskwarrior command line: `project:os`, `+term`, `project:os +homework`, `due.before:now+7d`, and so on.
+- The **filter** is the rest of the line, written exactly as on the Taskwarrior command line: `project:os`, `+term`, `project:os +homework`, `due.before:now+7d`, `description.has:"two words"`, and so on. In a filter, `now` means the time of the week being planned (see [Relative dates in filters](#relative-dates-in-filters)).
 
 ### Days: [shanbe] to [jome]
 
@@ -170,7 +182,7 @@ A section for each day, named in Finglish: `[shanbe]`, `[yekshanbe]`, `[doshanbe
 
 | Option | Meaning |
 |---|---|
-| `filter:"..."` | Pull tasks with this filter instead of the category's. The category is still the slot's category, for planning. |
+| `filter:"..."` | Pull tasks with this filter instead of the category's. The category is still the slot's category, for planning. Inside the double quotes, quote a phrase with single quotes: `filter:"description.has:'two words'"`. |
 | `fallback:"..."` | This slot's own fallback chain, replacing the global one. |
 | `optional` | Shown dimmed, and counted as planned time only when it gets a task. |
 | `protected` | Never lends its time to another task. *Checked now; used once borrowing is supported.* |

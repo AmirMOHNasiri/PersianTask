@@ -41,6 +41,19 @@ class CliGuard {
   CLI2 _saved;
 };
 
+// Sets the current time used by filters and urgency (Datetime::currentTime)
+// while it exists, and restores the previous one when destroyed.
+class NowGuard {
+ public:
+  explicit NowGuard(time_t);
+  ~NowGuard();
+  NowGuard(const NowGuard&) = delete;
+  NowGuard& operator=(const NowGuard&) = delete;
+
+ private:
+  time_t _saved;
+};
+
 // A slot on a particular day.
 struct Instance {
   int number{0};  // Position in the week, starting at 1.
@@ -57,6 +70,10 @@ class Week {
   Week(const Template&, const Datetime&);
 
   std::string label() const;
+
+  // The time that filters such as due.before:now+7d are relative to: the
+  // current time for this week, and the start of the week for other weeks.
+  Datetime reference() const;
 
   Datetime start;
   std::vector<Instance> instances;
@@ -81,10 +98,12 @@ struct Assignment {
 // Chooses a task for each slot of a week.  First each slot takes the most
 // urgent pending task of its own category, in time order, so the earliest slot
 // gets the most urgent task.  Then the slots still empty go down their
-// fallback chains, in time order.  Reads tasks, never writes anything.
+// fallback chains, in time order.  Filters and urgency are evaluated as of
+// the reference time, so that 'now' in a filter means that time.  Reads
+// tasks, never writes anything.
 class Planner {
  public:
-  explicit Planner(const Template&);
+  Planner(const Template&, const Datetime& reference);
 
   std::vector<Assignment> plan(const Week&);
   std::vector<Task> matching(const std::string& filter);
@@ -93,6 +112,7 @@ class Planner {
   std::optional<Task> pick(const std::string& filter, const Datetime& day);
 
   const Template& _template;
+  Datetime _reference;
   std::vector<Task> _pending;
   std::map<std::string, std::vector<Task>> _cache;
   std::map<std::pair<std::string, time_t>, int> _used;  // Slots per task (uuid) per day.

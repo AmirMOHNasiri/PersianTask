@@ -18,6 +18,7 @@
 #include <FS.h>
 #include <ScheduleExample.h>
 #include <ScheduleHelp.h>
+#include <ScheduleStartup.h>
 #include <SchedulePlanner.h>
 #include <ScheduleTemplate.h>
 #include <Table.h>
@@ -64,21 +65,6 @@ std::string problemsNote(const Template& tmpl) {
   return format("The schedule template has {1} {2}.  Run 'task schedule check' to see {3}.\n",
                 tmpl.problems.size(), tmpl.problems.size() == 1 ? "problem" : "problems",
                 tmpl.problems.size() == 1 ? "it" : "them");
-}
-
-// Plain 'task' shows today's schedule, when there is a template.
-std::string defaultCommand(const std::vector<A2>& args) {
-  auto& config = Context::getContext().config;
-
-  bool plain = true;
-  for (size_t i = 1; i < args.size(); ++i)
-    if (!args[i].hasTag("RC") && !args[i].hasTag("CONFIG")) plain = false;
-
-  if (plain && config.getBoolean("schedule") && config.getBoolean("schedule.default") &&
-      File(Template::path()).exists())
-    return "schedule";
-
-  return config.get("default.command");
 }
 
 // Parses a whole word as a date, such as 'farda' or '1405-08-10'.
@@ -175,7 +161,37 @@ Table makeTable(bool days) {
   return table;
 }
 
+
+// Plain 'task' shows today's schedule, when there is a template.
+std::string defaultCommand(const std::vector<A2>& args) {
+  auto& config = Context::getContext().config;
+
+  bool plain = true;
+  for (size_t i = 1; i < args.size(); ++i)
+    if (!args[i].hasTag("RC") && !args[i].hasTag("CONFIG")) plain = false;
+
+  if (plain && config.getBoolean("schedule") && config.getBoolean("schedule.default") &&
+      File(Template::path()).exists())
+    return "schedule";
+
+  return config.get("default.command");
+}
+
 }  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+void schedule::initialize(CLI2& cli) {
+  auto& config = Context::getContext().config;
+
+  CLI2::defaultCommandHook = defaultCommand;
+
+  // 'task tasks' is the usual task list, whatever default.command says.
+  if (!config.has("alias.tasks")) {
+    auto command = config.get("default.command");
+    if (command.empty() || command.substr(0, 8) == "schedule") command = "next";
+    cli.alias("tasks", command);
+  }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 CmdSchedule::CmdSchedule() {
@@ -192,7 +208,6 @@ CmdSchedule::CmdSchedule() {
   _accepts_miscellaneous = true;
   _category = Command::Category::report;
 
-  CLI2::defaultCommandHook = defaultCommand;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -237,6 +252,12 @@ int CmdSchedule::today(std::string& output) {
   auto& context = Context::getContext();
   int rc = 0;
 
+  // Plain 'task' runs this as the default command.  Shell greetings and
+  // scripts call plain 'task', so it never fails because of the template.
+  bool plain = false;
+  for (auto& arg : context.cli2._args)
+    if (arg.hasTag("CMD") && arg.hasTag("DEFAULT")) plain = true;
+
   Template tmpl;
   if (!tmpl.load()) {
     output = noTemplateHint;
@@ -247,13 +268,13 @@ int CmdSchedule::today(std::string& output) {
   out << '\n';
   if (!tmpl.problems.empty()) {
     out << problemsNote(tmpl);
-    rc = 1;
+    rc = plain ? 0 : 1;
   } else {
     auto day = schedule::now().startOfDay();
     Week week(tmpl, day);
 
     std::vector<Assignment> todays;
-    for (auto& assignment : Planner(tmpl).plan(week))
+    for (auto& assignment : Planner(tmpl, week.reference()).plan(week))
       if (assignment.instance->day.sameDay(day)) todays.push_back(assignment);
 
     out << configColor("color.schedule.header")
@@ -315,7 +336,7 @@ int CmdSchedule::week(const std::vector<std::string>& args, std::string& output)
 
   Week week(tmpl, day);
   auto table = makeTable(true);
-  addRows(table, Planner(tmpl).plan(week), true);
+  addRows(table, Planner(tmpl, week.reference()).plan(week), true);
 
   std::stringstream out;
   out << '\n'
@@ -367,7 +388,7 @@ int CmdSchedule::check(std::string& output) {
 
   // Filters are checked by running them.
   {
-    Planner planner(tmpl);
+    Planner planner(tmpl, schedule::now());
     auto tryFilter = [&](const std::string& filter, int line, const std::string& what) {
       try {
         planner.matching(filter);

@@ -18,6 +18,7 @@ configure_file (ScheduleExample.h.in ${CMAKE_CURRENT_BINARY_DIR}/ScheduleExample
 set (schedule_SRCS CmdSchedule.cpp       CmdSchedule.h
                    ScheduleHelp.cpp      ScheduleHelp.h
                    SchedulePlanner.cpp   SchedulePlanner.h
+                   ScheduleStartup.h
                    ScheduleTemplate.cpp  ScheduleTemplate.h)
 
 add_library (schedule STATIC ${schedule_SRCS})

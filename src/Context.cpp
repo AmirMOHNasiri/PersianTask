@@ -28,6 +28,7 @@
 // cmake.h include header must come first
 
 #include <Context.h>
+#include <ScheduleStartup.h>
 #include <Datetime.h>
 #include <Duration.h>
 #include <Eval.h>
@@ -275,7 +276,6 @@ std::string configurationDefaults =
     "alias.ghistory=ghistory.monthly                # Prefer monthly graphical over annual history "
     "reports\n"
     "alias.burndown=burndown.weekly                 # Prefer the weekly burndown chart\n"
-    "alias.tasks=next                               # Just the tasks, without the schedule\n"
     "\n"
     "# Reports\n"
     "\n"
@@ -622,6 +622,11 @@ int Context::initialize(int argc, const char** argv) {
     staticInitialization();
     propagateDebug();
     loadAliases();
+
+    // The PersianTask schedule hooks into the command line: plain 'task'
+    // shows today's schedule, and 'task tasks' the usual task list.  This is
+    // done here, explicitly, rather than when the commands are constructed.
+    schedule::initialize(cli2);
 
     ////////////////////////////////////////////////////////////////////////////
     //

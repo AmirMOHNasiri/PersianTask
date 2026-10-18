@@ -146,7 +146,7 @@ Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project    term (fallba
 | `task schedule init [example \| blank]` | Creates the template |
 | `task schedule check` | Finds mistakes in the template, with line numbers |
 | `task schedule help [<command> \| template]` | Built-in help |
-| `task tasks` | All tasks, without the schedule |
+| `task tasks` | Your usual task list (your `default.command`), without the schedule |
 
 Swapping, moving and skipping slots for one week, borrowing time, a weekly review, and temporary modes such as exam season are coming in the next versions.
 

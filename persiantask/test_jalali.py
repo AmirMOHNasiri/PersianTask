@@ -178,6 +178,23 @@ def test_named_dates(task):
         check("Named date '{}'".format(word), task.calc(word), value)
 
 
+def test_persian_days_in_attributes(task):
+    """The Persian day words do not break month names, and work in filters."""
+    today = datetime.date.today()
+    jy = ref.to_jalali(today)[0]
+
+    # A month name is its next start, which for Farvardin is always next year.
+    task.out("add", "project:persian", "Farvardin task", "due:far")
+    farvardin = ref.from_jalali(jy + 1, 1, 1)
+    check("due:far is the next Farvardin, not farda",
+          export_date(task.export("project:persian", "Farvardin")[0]["due"]), farvardin)
+
+    task.out("add", "project:persian", "Today task", "due:emruz")
+    task.out("add", "project:persian", "Tomorrow task", "due:farda")
+    check("due.before:farda in a filter", task.out("project:persian", "due.before:farda", "count"), "1")
+    check("due:farda in a filter", task.out("project:persian", "due:farda", "count"), "1")
+
+
 def test_display(task):
     task.out("add", "project:display", "due:1405-07-30", "display test")
     uuid = task.export("project:display")[0]["uuid"]
@@ -236,5 +253,6 @@ def test_config(task):
 ################################################################################
 if __name__ == "__main__":
     sys.exit(run_tests([test_gregorian_to_jalali, test_jalali_to_gregorian, test_validity,
-                        test_digits, test_machine_formats, test_named_dates, test_display,
+                        test_digits, test_machine_formats, test_named_dates,
+                        test_persian_days_in_attributes, test_display,
                         test_calendar, test_recurrence, test_config]))

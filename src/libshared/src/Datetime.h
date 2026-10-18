@@ -47,6 +47,12 @@ public:
   static bool standaloneTimeEnabled;
   static bool timeRelative;
 
+  // The current time, which is time (nullptr) unless currentTimeOverride is
+  // set.  The override lets the PersianTask schedule evaluate filters and
+  // urgency as of another time, such as the start of a future week.
+  static time_t currentTimeOverride;
+  static time_t currentTime ();
+
   Datetime ();
   Datetime (const std::string&, const std::string& format = "");
   Datetime (time_t);

@@ -1847,7 +1847,7 @@ float Task::urgency_active() const {
 
 ////////////////////////////////////////////////////////////////////////////////
 float Task::urgency_scheduled() const {
-  if (has("scheduled") && get_date("scheduled") < time(nullptr)) return 1.0;
+  if (has("scheduled") && get_date("scheduled") < Datetime::currentTime()) return 1.0;
 
   return 0.0;
 }

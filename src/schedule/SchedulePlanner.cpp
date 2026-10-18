@@ -32,6 +32,14 @@ Datetime now() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+NowGuard::NowGuard(time_t now) : _saved(Datetime::currentTimeOverride) {
+  Datetime::currentTimeOverride = now;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+NowGuard::~NowGuard() { Datetime::currentTimeOverride = _saved; }
+
+////////////////////////////////////////////////////////////////////////////////
 CliGuard::CliGuard() : _saved(Context::getContext().cli2) {}
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -83,7 +91,17 @@ std::string Week::label() const {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-Planner::Planner(const Template& tmpl) : _template(tmpl) {
+Datetime Week::reference() const {
+  auto current = schedule::now();
+  Datetime end = start;
+  for (int i = 0; i < 7; ++i) ++end;
+
+  return start <= current && current < end ? current : start;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+Planner::Planner(const Template& tmpl, const Datetime& reference)
+    : _template(tmpl), _reference(reference) {
   for (auto& task : Context::getContext().tdb2.pending_tasks())
     if (task.getStatus() == Task::pending && !task.is_blocked) _pending.push_back(task);
 }
@@ -93,6 +111,9 @@ Planner::Planner(const Template& tmpl) : _template(tmpl) {
 std::vector<Task> Planner::matching(const std::string& filter) {
   auto cached = _cache.find(filter);
   if (cached != _cache.end()) return cached->second;
+
+  // Filters and urgency are evaluated as of the reference time.
+  NowGuard now(_reference.toEpoch());
 
   std::vector<Task> result;
   {
@@ -114,7 +135,10 @@ std::vector<Task> Planner::matching(const std::string& filter) {
 
   // Task::urgency is not const, so the scores are computed before sorting.
   std::vector<std::pair<float, Task>> scored;
-  for (auto& task : result) scored.emplace_back(task.urgency(), task);
+  for (auto& task : result) {
+    task.recalc_urgency = true;
+    scored.emplace_back(task.urgency(), task);
+  }
   std::stable_sort(scored.begin(), scored.end(), [](auto& a, auto& b) {
     return a.first != b.first ? a.first > b.first : a.second.id < b.second.id;
   });

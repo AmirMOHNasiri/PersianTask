@@ -243,7 +243,7 @@ namespace
   // Today's local date, in Jalali terms.
   void nowJalali (int& jy, int& jm, int& jd)
   {
-    epochToJalali (time (nullptr), jy, jm, jd);
+    epochToJalali (Datetime::currentTime (), jy, jm, jd);
   }
 
   bool gregorianLeapYear (int year)
@@ -312,11 +312,19 @@ bool Datetime::standaloneTimeEnabled = true;
 // - 1st, 2nd, 3rd, ... is always converted to date before now
 bool Datetime::timeRelative = true;
 
+time_t Datetime::currentTimeOverride = 0;
+
+////////////////////////////////////////////////////////////////////////////////
+time_t Datetime::currentTime ()
+{
+  return currentTimeOverride ? currentTimeOverride : time (nullptr);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 Datetime::Datetime ()
 {
   clear ();
-  _date = time (nullptr);
+  _date = Datetime::currentTime ();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1616,7 +1624,7 @@ bool Datetime::initializeNow (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      _date = time (nullptr);
+      _date = Datetime::currentTime ();
       return true;
     }
   }
@@ -1649,7 +1657,7 @@ bool Datetime::initializePersianDay (Pig& pig)
       if (! unicodeLatinAlpha (following) &&
           ! unicodeLatinDigit (following))
       {
-        time_t now = time (nullptr);
+        time_t now = Datetime::currentTime ();
         struct tm* t = localtime (&now);
 
         t->tm_mday += word.second;
@@ -1680,7 +1688,7 @@ bool Datetime::initializeYesterday (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_hour = t->tm_min = t->tm_sec = 0;
@@ -1709,7 +1717,7 @@ bool Datetime::initializeToday (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_hour = t->tm_min = t->tm_sec = 0;
@@ -1738,7 +1746,7 @@ bool Datetime::initializeTomorrow (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_mday++;
@@ -1821,7 +1829,7 @@ bool Datetime::initializeDayName (Pig& pig)
           following != '=')
       {
         int day = alias.second;
-        time_t now = time (nullptr);
+        time_t now = Datetime::currentTime ();
         struct tm* t = localtime (&now);
 
         if (t->tm_wday >= day)
@@ -1901,7 +1909,7 @@ bool Datetime::initializeLater (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_hour = t->tm_min = t->tm_sec = 0;
@@ -1930,7 +1938,7 @@ bool Datetime::initializeSopd (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_hour = t->tm_min = t->tm_sec = 0;
@@ -1957,7 +1965,7 @@ bool Datetime::initializeSod (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_hour = t->tm_min = t->tm_sec = 0;
@@ -1983,7 +1991,7 @@ bool Datetime::initializeSond (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_mday++;
@@ -2010,7 +2018,7 @@ bool Datetime::initializeEopd (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_hour = t->tm_min = 0;
@@ -2037,7 +2045,7 @@ bool Datetime::initializeEod (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_mday++;
@@ -2065,7 +2073,7 @@ bool Datetime::initializeEond (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       t->tm_mday += 2;
@@ -2109,7 +2117,7 @@ namespace
   // current week.
   time_t weekDayEpoch (int weeks, int days)
   {
-    time_t now = time (nullptr);
+    time_t now = Datetime::currentTime ();
     int dow = localtime (&now)->tm_wday;
 
     int y, m, d;
@@ -2494,7 +2502,7 @@ bool Datetime::initializeEaster (Pig& pig)
        ! unicodeLatinAlpha (pig.peek ()) &&
        ! unicodeLatinDigit (pig.peek ()))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       easter (t);
@@ -2532,7 +2540,7 @@ bool Datetime::initializeMidsommar (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
       midsommar (t);
       _date = mktime (t);
@@ -2568,7 +2576,7 @@ bool Datetime::initializeMidsommarafton (Pig& pig)
     if (! unicodeLatinAlpha (following) &&
         ! unicodeLatinDigit (following))
     {
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
       midsommarafton (t);
       _date = mktime (t);
@@ -2672,7 +2680,7 @@ bool Datetime::initializeInformalTime (Pig& pig)
     if (haveDesignator || ! needDesignator)
     {
       // Midnight today + hours:minutes:seconds.
-      time_t now = time (nullptr);
+      time_t now = Datetime::currentTime ();
       struct tm* t = localtime (&now);
 
       int now_seconds  = (t->tm_hour * 3600) + (t->tm_min * 60) + t->tm_sec;
@@ -2954,7 +2962,7 @@ void Datetime::resolve ()
   bool utc    = _utc;
 
   // Get current time.
-  time_t now = time (nullptr);
+  time_t now = Datetime::currentTime ();
 
   // A UTC offset needs to be accommodated.  Once the offset is subtracted,
   // only local and UTC times remain.
