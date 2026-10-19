@@ -6,7 +6,6 @@ Usage: python3 persiantask/test_calendar.py path/to/task
 """
 
 import datetime
-import json
 import os
 import re
 import sys
@@ -126,15 +125,20 @@ def test_switching_keeps_data(task):
     task.out("add", "Two", "due:eom", "recur:monthly")
     task.out("add", "Three", "project:x", "estimate:2h")
     task.out("list")  # Generates the recurring instances.
-    before = task.out("export")
+
+    # Urgency is computed when exporting, from the task's age among others,
+    # so it changes as time passes; everything else is stored data.
+    def stored():
+        return [{k: v for k, v in t.items() if k != "urgency"} for t in task.export()]
+
+    before = stored()
 
     for calendar, style in COMBINATIONS + [("jalali", "finglish")]:
         task.out("config", "calendar", calendar)
         task.out("config", "dayname.style", style)
         for args in [["list"], ["1", "info"], ["calendar"], ["next"], ["summary"]]:
             task.run(*args)
-        check("Export is unchanged under {}/{}".format(calendar, style),
-              json.loads(task.out("export")), json.loads(before))
+        check("Export is unchanged under {}/{}".format(calendar, style), stored(), before)
 
 
 def test_settings(task):
