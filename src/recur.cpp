@@ -42,6 +42,7 @@
 #include <unistd.h>
 #include <util.h>
 
+#include <algorithm>
 #include <limits>
 #include <optional>
 
@@ -60,6 +61,40 @@ std::optional<Datetime> checked_add_datetime(Datetime& base, time_t delta) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// PersianTask: periods whose dates depend on the calendar (months, quarters,
+// years, weekdays).  A recurring task with one keeps the calendar it was
+// created under, in 'rcalendar', so that changing the calendar setting never
+// changes the dates of its future instances.
+static bool calendarPeriod(const std::string& period) {
+  if (period.empty()) return false;
+  static const std::vector<std::string> named{
+      "monthly", "P1M",        "weekdays", "quarterly", "P3M", "semiannual", "P6M",
+      "bimonthly", "P2M",      "biannual", "biyearly",  "P2Y", "annual",     "yearly", "P1Y"};
+  if (std::find(named.begin(), named.end(), period) != named.end()) return true;
+
+  auto last = period[period.length() - 1];
+  if (unicodeLatinDigit(period[0]) && (last == 'm' || last == 'q')) return true;
+  return period[0] == 'P' && last == 'M' &&
+         Lexer::isAllDigits(period.substr(1, period.length() - 2));
+}
+
+namespace {
+
+// Sets the calendar while it exists, and restores it when destroyed.
+class CalendarGuard {
+ public:
+  explicit CalendarGuard(const std::string& calendar) : _saved(Datetime::jalali) {
+    if (!calendar.empty()) Datetime::jalali = calendar == "jalali";
+  }
+  ~CalendarGuard() { Datetime::jalali = _saved; }
+
+ private:
+  bool _saved;
+};
+
+}  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
 // Scans all tasks, and for any recurring tasks, determines whether any new
 // child tasks need to be generated to fill gaps.
 void handleRecurrence() {
@@ -73,6 +108,14 @@ void handleRecurrence() {
   // Look at all tasks and find any recurring ones.
   for (auto& t : tasks) {
     if (t.getStatus() == Task::recurring) {
+      // PersianTask: the calendar the task was created under.
+      bool stamped = false;
+      if (!t.has("rcalendar") && calendarPeriod(t.get("recur"))) {
+        t.set("rcalendar", Datetime::jalali ? "jalali" : "gregorian");
+        stamped = true;
+      }
+      CalendarGuard calendar(t.get("rcalendar"));
+
       // Generate a list of due dates for this recurring task, regardless of
       // the mask.
       std::vector<Datetime> due;
@@ -130,7 +173,8 @@ void handleRecurrence() {
           }
 
           rec.set("imask", i);
-          rec.remove("mask");  // Remove the mask of the parent.
+          rec.remove("mask");       // Remove the mask of the parent.
+          rec.remove("rcalendar");  // Only the parent needs it.
 
           // Add the new task to the DB.
           Context::getContext().tdb2.add(rec);
@@ -140,11 +184,11 @@ void handleRecurrence() {
       }
 
       // Only modify the parent if necessary.
-      if (changed) {
+      if (changed || stamped) {
         t.set("mask", mask);
         Context::getContext().tdb2.modify(t);
 
-        if (Context::getContext().verbose("recur"))
+        if (changed && Context::getContext().verbose("recur"))
           Context::getContext().footnote(
               format("Creating recurring task instance '{1}'", t.get("description")));
       }
@@ -228,13 +272,14 @@ std::optional<Datetime> getNextRecurrence(Datetime& current, std::string& period
   }
 
   else if (period == "weekdays") {
-    // Saturday to Wednesday; Thursday and Friday are the weekend.
+    // Saturday to Wednesday with calendar=jalali, as Thursday and Friday are
+    // the weekend, or Monday to Friday as upstream.
     auto dow = current.dayOfWeek();
     int days;
 
-    if (dow == 3)
+    if (dow == (Datetime::jalali ? 3 : 5))
       days = 3;
-    else if (dow == 4)
+    else if (dow == (Datetime::jalali ? 4 : 6))
       days = 2;
     else
       days = 1;

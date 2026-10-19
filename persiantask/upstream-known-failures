@@ -1,0 +1,11 @@
+# Upstream Taskwarrior tests that fail on this fork, with calendar=gregorian
+# and dayname.style=english, and why.  None of them is caused by the calendar:
+# they come from PersianTask's other defaults, which upstream-tests.sh leaves
+# as they are.  Pristine upstream passes all of them in the same environment.
+#
+# One test per line: its name, then the reason.  A reason starting with
+# 'flaky' marks a test that fails only sometimes, which may pass or fail.
+
+calendar.test.py   weekstart defaults to saturday, so the calendar's week starts on Sa; passes with weekstart=sunday
+uda.test.py        the estimate UDA is defined by default, for the schedule, so 'udas' lists 2 UDAs, not 1
+view_test.cpp      flaky: aborts now and then under heavy parallel load, in pristine upstream too

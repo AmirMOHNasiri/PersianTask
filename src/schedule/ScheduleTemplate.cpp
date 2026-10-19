@@ -192,7 +192,9 @@ int parseDayName(const std::string& input) {
       {"shanbe", 6},       {"shanbeh", 6},       {"yekshanbe", 0},    {"yekshanbeh", 0},
       {"doshanbe", 1},     {"doshanbeh", 1},     {"seshanbe", 2},     {"seshanbeh", 2},
       {"sehshanbe", 2},    {"chaharshanbe", 3},  {"chaharshanbeh", 3}, {"charshanbe", 3},
-      {"panjshanbe", 4},   {"panjshanbeh", 4},   {"jome", 5},         {"jomeh", 5}};
+      {"panjshanbe", 4},   {"panjshanbeh", 4},   {"jome", 5},         {"jomeh", 5},
+      {"saturday", 6},     {"sunday", 0},        {"monday", 1},       {"tuesday", 2},
+      {"wednesday", 3},    {"thursday", 4},      {"friday", 5}};
 
   auto day = days.find(lower(input));
   return day == days.end() ? -1 : day->second;

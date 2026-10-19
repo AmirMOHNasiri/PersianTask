@@ -248,6 +248,12 @@ int CmdShow::execute(std::string& output) {
   // is redirected to a file, or stdout is not a tty.
   recognized += "_forcecolor ";
 
+  // PersianTask: the calendar, and the weekly schedule.
+  recognized +=
+      "calendar dayname.style schedule schedule.default schedule.template schedule.wake "
+      "schedule.sleep schedule.report schedule.estimate.uda dateformat.schedule "
+      "color.schedule.header color.schedule.now color.schedule.past color.schedule.optional ";
+
   std::vector<std::string> unrecognized;
   for (auto& i : Context::getContext().config) {
     // Disallow partial matches by tacking a leading and trailing space on each

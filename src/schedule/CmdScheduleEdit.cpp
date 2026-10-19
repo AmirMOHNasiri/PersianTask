@@ -69,7 +69,7 @@ struct Change {
   }
 
   void commit(const std::string& description) {
-    auto cutoff = schedule::now().startOfWeek();
+    auto cutoff = weekStart(schedule::now());
     for (int i = 0; i < 7 * keptWeeks; ++i) --cutoff;
     state.prune(cutoff.startOfDay().toEpoch());
 
@@ -212,7 +212,7 @@ int CmdSchedule::move(std::vector<std::string> args, std::string& output) {
   if (weekday == -1 && !isDate)
     throw format("'{1}' is not a day, such as doshanbe, or a date.", args[1]);
   if (isDate) {
-    if (weekGiven && !date.startOfWeek().sameDay(day.startOfWeek()))
+    if (weekGiven && !weekStart(date).sameDay(weekStart(day)))
       throw format("{1} is not in the week given.", describeDay(date));
     day = date;
   }
@@ -462,7 +462,7 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
                  "slots that start later this week, and are not fixed, rest, protected or "
                  "assigned, can lend.{4}",
                  first,
-                 week.start.sameDay(schedule::now().startOfWeek()) ? "this week" : "that week",
+                 week.start.sameDay(weekStart(schedule::now())) ? "this week" : "that week",
                  join(" ", change.tmpl.borrow), floorNote);
 
   auto description = format("Borrowed {1} for task {2}, '{3}': {4}", formatHours(taken), first,

@@ -369,7 +369,7 @@ int CmdSchedule::check(std::string& output) {
   // Changes to this week and later weeks that can no longer be honored.
   State state;
   state.load();
-  auto thisWeek = schedule::now().startOfWeek().toEpoch();
+  auto thisWeek = weekStart(schedule::now()).toEpoch();
   for (auto& changes : state.weeks) {
     if (changes.first < thisWeek) continue;
 

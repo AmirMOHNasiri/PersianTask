@@ -142,7 +142,7 @@ int parseTime(const std::string&);
 std::string asciiDigits(const std::string&);
 std::string formatTime(int);
 
-// Day of the week (0 = Sunday) of a Finglish day name, or -1.
+// Day of the week (0 = Sunday) of a Finglish or English day name, or -1.
 int parseDayName(const std::string&);
 
 }  // namespace schedule

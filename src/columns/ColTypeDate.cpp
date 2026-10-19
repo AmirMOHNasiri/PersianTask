@@ -36,6 +36,7 @@
 #include <Variant.h>
 #include <format.h>
 
+
 ////////////////////////////////////////////////////////////////////////////////
 ColumnTypeDate::ColumnTypeDate() {
   _name = "";
@@ -188,11 +189,12 @@ void ColumnTypeDate::modify(Task& task, const std::string& value) {
 
   // If a date doesn't parse (2/29/2014) then it evaluates to zero.
   if (value != "" && evaluatedValue.get_date() == 0)
-    throw format("'{1}' is not a valid date in the '{2}' format.", value, Variant::dateFormat);
+    throw format("'{1}' is not a valid date in the '{2}' format.", value, Variant::dateFormat) +
+        Datetime::calendarHint(value);
 
   time_t epoch = evaluatedValue.get_date();
   if (epoch < EPOCH_MIN_VALUE || epoch >= EPOCH_MAX_VALUE) {
-    throw format("'{1}' is not a valid date.", value);
+    throw format("'{1}' is not a valid date.", value) + Datetime::calendarHint(value);
   }
   task.set(_name, epoch);
 }

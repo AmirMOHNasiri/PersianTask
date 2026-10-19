@@ -37,6 +37,7 @@ build() {
 check() {
   python3 "$pkgname/persiantask/test_jalali.py" build/src/task
   python3 "$pkgname/persiantask/test_schedule.py" build/src/task
+  python3 "$pkgname/persiantask/test_calendar.py" build/src/task
 }
 
 package() {

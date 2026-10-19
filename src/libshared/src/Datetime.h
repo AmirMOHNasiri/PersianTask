@@ -41,6 +41,8 @@ class Datetime
 {
 public:
   static int weekstart;
+  static bool jalali;           // calendar=jalali, or gregorian as upstream.
+  static bool englishDayNames;  // dayname.style=english, or finglish.
   static int minimumMatchLength;
   static bool isoEnabled;
   static bool standaloneDateEnabled;
@@ -89,6 +91,10 @@ public:
   static int dayOfWeek (int, int, int);
   static int monthOfYear (const std::string&);
   static int length (const std::string&);
+
+  // PersianTask: a sentence explaining a date that looks like it is in the
+  // other calendar, to add to an error message, or an empty string.
+  static std::string calendarHint (const std::string&);
 
   int month () const;
   int week () const;

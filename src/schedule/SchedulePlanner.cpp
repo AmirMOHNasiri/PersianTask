@@ -33,6 +33,13 @@ Datetime now() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+Datetime weekStart(const Datetime& day) {
+  Datetime start = day.startOfDay();
+  while (start.dayOfWeek() != Datetime::weekstart) --start;
+  return start.startOfDay();
+}
+
+////////////////////////////////////////////////////////////////////////////////
 NowGuard::NowGuard(time_t now) : _saved(Datetime::currentTimeOverride) {
   Datetime::currentTimeOverride = now;
 }
@@ -66,7 +73,7 @@ void CliGuard::replaceArgs(const std::vector<std::string>& args, bool useContext
 
 ////////////////////////////////////////////////////////////////////////////////
 Week::Week(const Template& tmpl, const Datetime& day, const State* state)
-    : start(day.startOfWeek()) {
+    : start(weekStart(day)) {
   // The template's slots, numbered in the template's order of the week.
   Datetime cursor = start;
   for (int i = 0; i < 7; ++i, ++cursor) {

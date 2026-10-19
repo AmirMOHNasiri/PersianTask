@@ -427,7 +427,7 @@ One category per line: a name, a floor, and a filter.
 12:00-sleep    fri-rest       rest      -         protected
 ```
 
-A section for each day, named in Finglish: `[shanbe]`, `[yekshanbe]`, `[doshanbe]`, `[seshanbe]`, `[chaharshanbe]`, `[panjshanbe]`, `[jome]`. Each line is one slot, made of:
+A section for each day, named in Finglish, `[shanbe]`, `[yekshanbe]`, `[doshanbe]`, `[seshanbe]`, `[chaharshanbe]`, `[panjshanbe]`, `[jome]`, or in English, `[saturday]` to `[friday]`, whatever `dayname.style` says. Each line is one slot, made of:
 
 1. **Time**: `HH:MM-HH:MM`. `wake` and `sleep` stand for the `schedule.wake` and `schedule.sleep` settings, as in `12:00-sleep`. Slots must fit between them, and must not overlap on the same day.
 2. **Id**: a unique name, such as `sat-research`, used to refer to the slot. It uses letters, digits, `-` and `_`, and is not only digits.
@@ -469,6 +469,11 @@ give   = arch except 1 -> term
 | `active` | When the mode applies: `<N>d before $param` (the N days before that date, not the date itself), or `until $param` (from the day it is started to the end of that date). Without `active`, the mode applies from the day it is started until it is stopped. |
 | `give` | `<slots> [N% \| except N] -> <category>`: those slots work on another category while the mode is active. `<slots>` is a category name (its slots), a slot id, or `kind:<kind>`. `50%` gives every other one, spread over the time, and `except 1` all but the first in the week. Fixed, rest and protected slots are never given. |
 | `floor` | `<category> <hours>`: a different floor, in any week the mode is active. |
+
+Notes on modes:
+
+- A percentage is spread evenly over the selected slots, in time order, but is approximate when it does not divide 100: with `33%`, the 1st, 5th and 8th slots are given, so 1 of 3 slots, but 2 of 5 (40%). The share comes out exact for 50%, 25%, 20% and 10% when the number of slots is a multiple of 2, 4, 5 or 10.
+- A `floor` rule applies to **every week the mode overlaps, even by a single day**. An exam on a Monday thus changes the floor of the week before it as a whole, and also of the exam's own week if the seven days reach into it. A rule that lowers a floor (as `floor = arch 0` does) is harmless there; but keep in mind that a rule raising a floor would demand the higher floor for those whole weeks.
 
 ## Settings
 

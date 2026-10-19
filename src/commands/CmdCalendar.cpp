@@ -478,8 +478,10 @@ std::string CmdCalendar::renderMonths(int firstMonth, int firstYear, const Datet
       if (Context::getContext().color()) {
         Color cellColor;
 
-        // colorize weekends (Thursday and Friday)
-        if (dow == 4 || dow == 5) cellColor.blend(color_weekend);
+        // colorize weekends: Thursday and Friday with calendar=jalali, or
+        // Saturday and Sunday as upstream
+        if (Datetime::jalali ? dow == 4 || dow == 5 : dow == 0 || dow == 6)
+          cellColor.blend(color_weekend);
 
         // colorize holidays
         if (config.get("calendar.holidays") != "none") {

@@ -197,6 +197,11 @@ class Planner {
 // and is deliberately not documented.
 Datetime now();
 
+// Midnight at the start of the week containing the day.  Weeks start on the
+// weekstart setting, whatever the calendar, unlike Datetime::startOfWeek,
+// which keeps upstream's Sunday weeks with calendar=gregorian.
+Datetime weekStart(const Datetime&);
+
 }  // namespace schedule
 
 #endif

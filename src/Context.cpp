@@ -153,6 +153,8 @@ std::string configurationDefaults =
     "annotations\n"
     "date.iso=1                                     # Enable ISO date support\n"
     "weekstart=saturday                             # First day of the week\n"
+    "calendar=jalali                                # jalali, or gregorian as upstream\n"
+    "dayname.style=finglish                         # Day names: finglish (Shanbe) or english\n"
     "displayweeknumber=1                            # Show week numbers on calendar\n"
     "due=7                                          # Task is considered due in 7 days\n"
     "\n"
@@ -1121,6 +1123,18 @@ void Context::staticInitialization() {
   if (weekStart == -1)
     throw std::string("The 'weekstart' configuration variable must contain a day name.");
   Datetime::weekstart = weekStart;
+
+  // PersianTask: the calendar, and how day names are shown.
+  auto calendar = config.get("calendar");
+  if (calendar != "jalali" && calendar != "gregorian")
+    throw std::string("The 'calendar' configuration variable must be 'jalali' or 'gregorian'.");
+  Datetime::jalali = calendar == "jalali";
+
+  auto dayNames = config.get("dayname.style");
+  if (dayNames != "finglish" && dayNames != "english")
+    throw std::string(
+        "The 'dayname.style' configuration variable must be 'finglish' or 'english'.");
+  Datetime::englishDayNames = dayNames == "english";
   Datetime::isoEnabled = config.getBoolean("date.iso");
   Datetime::standaloneDateEnabled = false;
   Datetime::standaloneTimeEnabled = false;

@@ -36,7 +36,7 @@
 #include <unicode.h>
 #include <utf8.h>
 
-// Display names, indexed like tm_wday (0 = Sunday).
+// Display names, indexed like tm_wday (0 = Sunday), for dayname.style=finglish.
 static std::vector <std::string> dayNames {
   "yekshanbe",
   "doshanbe",
@@ -45,6 +45,31 @@ static std::vector <std::string> dayNames {
   "panjshanbe",
   "jome",
   "shanbe"};
+
+// Display names, for dayname.style=english, as in upstream Taskwarrior.
+static std::vector <std::string> englishDayNameList {
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday"};
+
+// Gregorian month names, for calendar=gregorian, as in upstream Taskwarrior.
+static std::vector <std::string> gregorianMonthNames {
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december"};
 
 // Display names of the Jalali (Solar Hijri) months.
 static std::vector <std::string> monthNames {
@@ -79,7 +104,17 @@ static std::vector <std::pair <std::string, int>> dayAliases {
   {"friday",        5},
   {"saturday",      6}};
 
-// Accepted spellings of month names when parsing, with their month number.
+// Gregorian month names when parsing, with calendar=gregorian.
+static const std::vector <std::pair <std::string, int>>& gregorianMonthAliases ()
+{
+  static std::vector <std::pair <std::string, int>> aliases;
+  if (aliases.empty ())
+    for (size_t i = 0; i < gregorianMonthNames.size (); ++i)
+      aliases.emplace_back (gregorianMonthNames[i], static_cast <int> (i) + 1);
+  return aliases;
+}
+
+// Accepted spellings of Jalali month names when parsing, with their number.
 static std::vector <std::pair <std::string, int>> monthAliases {
   {"farvardin",    1},
   {"ordibehesht",  2},
@@ -94,7 +129,8 @@ static std::vector <std::pair <std::string, int>> monthAliases {
   {"bahman",      11},
   {"esfand",      12}, {"espand", 12}};
 
-// Years at or above this value are Gregorian, all others are Jalali.  This
+// With calendar=jalali, years at or above this value are Gregorian, and all
+// others are Jalali.  This
 // keeps machine formats (JSON, import/export, hooks, holiday files) working,
 // while dates entered or displayed by the user are Jalali.  Jalali year 1700
 // is not reached until 2321 CE.
@@ -240,10 +276,43 @@ namespace
     return mktime (&t);
   }
 
-  // Today's local date, in Jalali terms.
-  void nowJalali (int& jy, int& jm, int& jd)
+  ////////////////////////////////////////////////////////////////////////////
+  // The calendar in use, calendar=jalali or calendar=gregorian.  With
+  // gregorian, dates are exactly as in upstream Taskwarrior.
+
+  // Year, month and day of the local date of the given time.
+  void epochToDate (time_t epoch, int& y, int& m, int& d)
   {
-    epochToJalali (Datetime::currentTime (), jy, jm, jd);
+    if (Datetime::jalali)
+      return epochToJalali (epoch, y, m, d);
+
+    struct tm* t = localtime (&epoch);
+    y = t->tm_year + 1900;
+    m = t->tm_mon + 1;
+    d = t->tm_mday;
+  }
+
+  // Local time for a date.  Out of range months and days are normalized.
+  time_t dateToEpoch (int y, int m, int d, int hr = 0, int mi = 0, int se = 0)
+  {
+    if (Datetime::jalali)
+      return jalaliToEpoch (y, m, d, hr, mi, se);
+
+    struct tm t {};
+    t.tm_isdst = -1;   // Requests that mktime determine summer time effect.
+    t.tm_year  = y - 1900;
+    t.tm_mon   = m - 1;
+    t.tm_mday  = d;
+    t.tm_hour  = hr;
+    t.tm_min   = mi;
+    t.tm_sec   = se;
+    return mktime (&t);
+  }
+
+  // Today's local date.
+  void nowDate (int& y, int& m, int& d)
+  {
+    epochToDate (Datetime::currentTime (), y, m, d);
   }
 
   bool gregorianLeapYear (int year)
@@ -296,7 +365,14 @@ namespace
   }
 }
 
-int Datetime::weekstart = 6; // Saturday, as in the Iranian calendar.
+int Datetime::weekstart = 1; // Monday, per ISO-8601.
+
+// calendar=jalali or gregorian, and dayname.style=finglish or english.  The
+// library behaves exactly as upstream until configured: Taskwarrior sets
+// these from its configuration, whose defaults are jalali, finglish, and a
+// week starting on Saturday.
+bool Datetime::jalali = false;
+bool Datetime::englishDayNames = true;
 int Datetime::minimumMatchLength = 3;
 bool Datetime::isoEnabled            = true;
 bool Datetime::standaloneDateEnabled = true;
@@ -333,7 +409,8 @@ Datetime::Datetime (const std::string& input, const std::string& format)
   clear ();
   std::string::size_type start = 0;
   if (! parse (input, start, format))
-    throw ::format ("'{1}' is not a valid date in the '{2}' format.", input, format);
+    throw ::format ("'{1}' is not a valid date in the '{2}' format.", input, format) +
+          calendarHint (input);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -344,25 +421,25 @@ Datetime::Datetime (const time_t t)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Jalali year, month, day.
+// Year, month, day, in the calendar in use.
 Datetime::Datetime (const int y, const int m, const int d)
 {
   // Protect against arguments being passed in the wrong order.
-  assert (y >= 1300 && y <= 9999);
+  assert (y >= (Datetime::jalali ? 1300 : 1969) && y <= 9999);
   assert (m >= 1 && m <= 12);
   assert (d >= 1 && d <= 31);
 
   clear ();
-  _date = jalaliToEpoch (y, m, d);
+  _date = dateToEpoch (y, m, d);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Jalali year, month, day.
+// Year, month, day, in the calendar in use.
 Datetime::Datetime (const int y,  const int m,  const int d,
                     const int hr, const int mi, const int se)
 {
   // Protect against arguments being passed in the wrong order.
-  assert (y >= 1300 && y <= 9999);
+  assert (y >= (Datetime::jalali ? 1300 : 1969) && y <= 9999);
   assert (m >= 1 && m <= 12);
   assert (d >= 1 && d <= 31);
   assert (hr >= 0 && hr <= 24);
@@ -370,7 +447,7 @@ Datetime::Datetime (const int y,  const int m,  const int d,
   assert (se >= 0 && se < 60);
 
   clear ();
-  _date = jalaliToEpoch (y, m, d, hr, mi, se);
+  _date = dateToEpoch (y, m, d, hr, mi, se);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -593,7 +670,7 @@ bool Datetime::parse_formatted (Pig& pig, const std::string& format)
         pig.restoreTo (checkpoint);
         return false;
       }
-      year += 1400;  // Jalali century.
+      year += Datetime::jalali ? 1400 : 2000;
       break;
 
     case 'Y':
@@ -1417,10 +1494,10 @@ bool Datetime::parse_year (Pig& pig, int& value)
 {
   auto checkpoint = pig.cursor ();
 
-  // Jalali 1348 is 1969 CE.
+  // Jalali 1348 is 1969 CE.  With calendar=gregorian, as upstream.
   int year;
   if (pig.getDigit4 (year) &&
-      ((year >= 1348 && year < GREGORIAN_YEAR_THRESHOLD) || year > 1969))
+      ((Datetime::jalali && year >= 1348 && year < GREGORIAN_YEAR_THRESHOLD) || year > 1969))
   {
     value = year;
     return true;
@@ -1792,15 +1869,15 @@ bool Datetime::initializeOrdinal (Pig& pig)
             remainder1 > 3) && character1 == 't' && character2 == 'h'))
       {
         int y, m, d;
-        nowJalali (y, m, d);
+        nowDate (y, m, d);
 
         if (timeRelative && (1 <= number && number <= d))
           ++m;
         else if (!timeRelative && (d < number && number <= daysInMonth (y, m)))
           --m;
 
-        // Month overflow is normalized by jalaliToEpoch.
-        _date = jalaliToEpoch (y, m, static_cast <int> (number));
+        // Month overflow is normalized by dateToEpoch.
+        _date = dateToEpoch (y, m, static_cast <int> (number));
         return true;
       }
     }
@@ -1861,7 +1938,7 @@ bool Datetime::initializeMonthName (Pig& pig)
   auto checkpoint = pig.cursor ();
 
   std::string token;
-  for (auto& alias : monthAliases)
+  for (auto& alias : Datetime::jalali ? monthAliases : gregorianMonthAliases ())
   {
     if (pig.skipPartial (alias.first, token, true) &&
         token.length () >= static_cast <std::string::size_type> (Datetime::minimumMatchLength))
@@ -1873,12 +1950,12 @@ bool Datetime::initializeMonthName (Pig& pig)
           following != '=')
       {
         int y, m, d;
-        nowJalali (y, m, d);
+        nowDate (y, m, d);
 
         if (m >= alias.second && timeRelative)
           ++y;
 
-        _date = jalaliToEpoch (y, alias.second, 1);
+        _date = dateToEpoch (y, alias.second, 1);
         return true;
       }
     }
@@ -2091,9 +2168,11 @@ bool Datetime::initializeEond (Pig& pig)
 
 ////////////////////////////////////////////////////////////////////////////////
 // Helpers for the week, month, quarter and year based named dates below.
-// Weeks start on Datetime::weekstart, and the work week is the first five
-// days of the week (Saturday to Wednesday, when the week starts on Saturday).
-// Months, quarters and years are Jalali.
+// With calendar=jalali, weeks start on Datetime::weekstart, and the work week
+// is the first five days of the week (Saturday to Wednesday, when the week
+// starts on Saturday).  With calendar=gregorian, weeks are as in upstream
+// Taskwarrior: they start on Monday, whatever weekstart says, and the work
+// week is Monday to Friday.  Months, quarters and years are in the calendar.
 namespace
 {
   // Matches the literal keyword, terminated by [ !<alpha> && !<digit> ].
@@ -2114,39 +2193,54 @@ namespace
   }
 
   // Midnight at the start of the given day of the given week, relative to the
-  // current week.
+  // current week, with calendar=jalali.
   time_t weekDayEpoch (int weeks, int days)
   {
     time_t now = Datetime::currentTime ();
     int dow = localtime (&now)->tm_wday;
 
     int y, m, d;
-    nowJalali (y, m, d);
-    return jalaliToEpoch (y, m, d - daysIntoWeek (dow) + (7 * weeks) + days);
+    nowDate (y, m, d);
+    return dateToEpoch (y, m, d - daysIntoWeek (dow) + (7 * weeks) + days);
+  }
+
+  // Upstream Taskwarrior's week dates, with calendar=gregorian: midnight, or
+  // the second before it with end, after moving the day of the month by the
+  // value from a function of the day of the week (0 = Sunday).
+  template <typename Delta>
+  time_t upstreamWeekDate (Delta delta, bool end)
+  {
+    time_t now = Datetime::currentTime ();
+    struct tm* t = localtime (&now);
+    t->tm_mday += delta (t->tm_wday);
+    t->tm_hour = t->tm_min = 0;
+    t->tm_sec = end ? -1 : 0;
+    t->tm_isdst = -1;
+    return mktime (t);
   }
 
   // Midnight at the start of a month, relative to the current month.
   time_t monthEpoch (int months)
   {
     int y, m, d;
-    nowJalali (y, m, d);
-    return jalaliToEpoch (y, m + months, 1);
+    nowDate (y, m, d);
+    return dateToEpoch (y, m + months, 1);
   }
 
   // Midnight at the start of a quarter, relative to the current quarter.
   time_t quarterEpoch (int quarters)
   {
     int y, m, d;
-    nowJalali (y, m, d);
-    return jalaliToEpoch (y, m - ((m - 1) % 3) + (3 * quarters), 1);
+    nowDate (y, m, d);
+    return dateToEpoch (y, m - ((m - 1) % 3) + (3 * quarters), 1);
   }
 
   // Midnight at the start of a year, relative to the current year.
   time_t yearEpoch (int years)
   {
     int y, m, d;
-    nowJalali (y, m, d);
-    return jalaliToEpoch (y + years, 1, 1);
+    nowDate (y, m, d);
+    return dateToEpoch (y + years, 1, 1);
   }
 
   const int workWeekDays = 5;
@@ -2159,7 +2253,8 @@ bool Datetime::initializeSopw (Pig& pig)
   if (! matchKeyword (pig, "sopw"))
     return false;
 
-  _date = weekDayEpoch (-1, 0);
+  _date = Datetime::jalali ? weekDayEpoch (-1, 0)
+                            : upstreamWeekDate ([] (int w) { return -((w + 6) % 7) - 7; }, false);
   return true;
 }
 
@@ -2170,7 +2265,8 @@ bool Datetime::initializeSow (Pig& pig)
   if (! matchKeyword (pig, "sow"))
     return false;
 
-  _date = weekDayEpoch (0, 0);
+  _date = Datetime::jalali ? weekDayEpoch (0, 0)
+                            : upstreamWeekDate ([] (int w) { return -((w + 6) % 7); }, false);
   return true;
 }
 
@@ -2181,7 +2277,8 @@ bool Datetime::initializeSonw (Pig& pig)
   if (! matchKeyword (pig, "sonw"))
     return false;
 
-  _date = weekDayEpoch (1, 0);
+  _date = Datetime::jalali ? weekDayEpoch (1, 0)
+                            : upstreamWeekDate ([] (int w) { return -((w + 6) % 7) + 7; }, false);
   return true;
 }
 
@@ -2192,7 +2289,8 @@ bool Datetime::initializeEopw (Pig& pig)
   if (! matchKeyword (pig, "eopw"))
     return false;
 
-  _date = weekDayEpoch (0, 0) - 1;
+  _date = Datetime::jalali ? weekDayEpoch (0, 0) - 1
+                            : upstreamWeekDate ([] (int w) { return -((w + 6) % 7); }, true);
   return true;
 }
 
@@ -2203,7 +2301,8 @@ bool Datetime::initializeEow (Pig& pig)
   if (! matchKeyword (pig, "eow"))
     return false;
 
-  _date = weekDayEpoch (1, 0) - 1;
+  _date = Datetime::jalali ? weekDayEpoch (1, 0) - 1
+                            : upstreamWeekDate ([] (int w) { return -((w + 6) % 7) + 7; }, true);
   return true;
 }
 
@@ -2214,7 +2313,8 @@ bool Datetime::initializeEonw (Pig& pig)
   if (! matchKeyword (pig, "eonw"))
     return false;
 
-  _date = weekDayEpoch (2, 0) - 1;
+  _date = Datetime::jalali ? weekDayEpoch (2, 0) - 1
+                            : upstreamWeekDate ([] (int w) { return 14 - ((w + 6) % 7); }, true);
   return true;
 }
 
@@ -2225,7 +2325,8 @@ bool Datetime::initializeSopww (Pig& pig)
   if (! matchKeyword (pig, "sopww"))
     return false;
 
-  _date = weekDayEpoch (-1, 0);
+  _date = Datetime::jalali ? weekDayEpoch (-1, 0)
+                            : upstreamWeekDate ([] (int w) { return -6 - w; }, false);
   return true;
 }
 
@@ -2236,7 +2337,8 @@ bool Datetime::initializeSoww (Pig& pig)
   if (! matchKeyword (pig, "soww"))
     return false;
 
-  _date = weekDayEpoch (0, 0);
+  _date = Datetime::jalali ? weekDayEpoch (0, 0)
+                            : upstreamWeekDate ([] (int w) { return 1 - w; }, false);
   return true;
 }
 
@@ -2247,7 +2349,8 @@ bool Datetime::initializeSonww (Pig& pig)
   if (! matchKeyword (pig, "sonww"))
     return false;
 
-  _date = weekDayEpoch (1, 0);
+  _date = Datetime::jalali ? weekDayEpoch (1, 0)
+                            : upstreamWeekDate ([] (int w) { return 8 - w; }, false);
   return true;
 }
 
@@ -2258,7 +2361,8 @@ bool Datetime::initializeEopww (Pig& pig)
   if (! matchKeyword (pig, "eopww"))
     return false;
 
-  _date = weekDayEpoch (-1, workWeekDays) - 1;
+  _date = Datetime::jalali ? weekDayEpoch (-1, workWeekDays) - 1
+                            : upstreamWeekDate ([] (int w) { return -(w + 1); }, true);
   return true;
 }
 
@@ -2269,7 +2373,8 @@ bool Datetime::initializeEoww (Pig& pig)
   if (! matchKeyword (pig, "eoww"))
     return false;
 
-  _date = weekDayEpoch (0, workWeekDays) - 1;
+  _date = Datetime::jalali ? weekDayEpoch (0, workWeekDays) - 1
+                            : upstreamWeekDate ([] (int w) { return 6 - w; }, true);
   return true;
 }
 
@@ -2280,7 +2385,8 @@ bool Datetime::initializeEonww (Pig& pig)
   if (! matchKeyword (pig, "eonww"))
     return false;
 
-  _date = weekDayEpoch (1, workWeekDays) - 1;
+  _date = Datetime::jalali ? weekDayEpoch (1, workWeekDays) - 1
+                            : upstreamWeekDate ([] (int w) { return 13 - w; }, true);
   return true;
 }
 
@@ -2890,10 +2996,10 @@ bool Datetime::validate ()
   int wks = (Datetime::weekstart == 1 ? 1: 0);
   int wke = (Datetime::weekstart == 1 ? 7: 6);
 
-  // Large years are Gregorian, others are Jalali.
-  bool gregorian = _year >= GREGORIAN_YEAR_THRESHOLD;
+  // With calendar=jalali, large years are Gregorian, others are Jalali.
+  bool gregorian = !Datetime::jalali || _year >= GREGORIAN_YEAR_THRESHOLD;
 
-  if ((_year    && (_year    <   1300 || _year    >  9999)) ||
+  if ((_year    && (_year    < (Datetime::jalali ? 1300 : 1900) || _year > 9999)) ||
       (_month   && (_month   <      1 || _month   >    12)) ||
       (_week    && (_week    <      1 || _week    >    53)) ||
       (true     && (_weekday <    wks || _weekday >   wke)) ||
@@ -3006,7 +3112,7 @@ void Datetime::resolve ()
   // is week 1.  The resulting day of the year may be out of range, and is
   // normalized below.
   //
-  if (week && year < GREGORIAN_YEAR_THRESHOLD)
+  if (week && Datetime::jalali && year < GREGORIAN_YEAR_THRESHOLD)
   {
     month = 1;
     day = 1 - daysIntoWeek (dayOfWeek (year, 1, 1))
@@ -3084,7 +3190,7 @@ void Datetime::resolve ()
   }
 
   // Convert Jalali to Gregorian, normalizing an out of range day.
-  if (year < GREGORIAN_YEAR_THRESHOLD)
+  if (Datetime::jalali && year < GREGORIAN_YEAR_THRESHOLD)
   {
     int gy, gm, gd;
     jdnToGregorian (jalaliToJdn (year, month, 1) + day - 1, gy, gm, gd);
@@ -3145,13 +3251,13 @@ std::string Datetime::toISO () const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// 1376-10-29T07:00:00 =  YYYY-MM-DDThh:mm:ss, with a Jalali date.
+// 1376-10-29T07:00:00 =  YYYY-MM-DDThh:mm:ss, in the calendar in use.
 std::string Datetime::toISOLocalExtended () const
 {
   struct tm* t = localtime (&_date);
 
   int y, m, d;
-  jdnToJalali (gregorianToJdn (t->tm_year + 1900, t->tm_mon + 1, t->tm_mday), y, m, d);
+  epochToDate (_date, y, m, d);
 
   std::stringstream iso;
   iso << std::setw (4) << std::setfill ('0') << y
@@ -3176,10 +3282,10 @@ double Datetime::toJulian () const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Jalali year, month, day.
+// Year, month, day, in the calendar in use.
 void Datetime::toYMD (int& y, int& m, int& d) const
 {
-  epochToJalali (_date, y, m, d);
+  epochToDate (_date, y, m, d);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3228,8 +3334,9 @@ Datetime Datetime::startOfDay () const
 ////////////////////////////////////////////////////////////////////////////////
 Datetime Datetime::startOfWeek () const
 {
+  // With calendar=gregorian, weeks start on Sunday here, as in upstream.
   Datetime sow (_date);
-  sow -= (daysIntoWeek (dayOfWeek ()) * 86400);
+  sow -= ((Datetime::jalali ? daysIntoWeek (dayOfWeek ()) : dayOfWeek ()) * 86400);
   return { sow.year (), sow.month (), sow.day () };
 }
 
@@ -3317,19 +3424,25 @@ bool Datetime::valid (const int y, const int d)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Static, Jalali.
+// Static, in the calendar in use.
 bool Datetime::leapYear (int year)
 {
+  if (!Datetime::jalali)
+    return gregorianLeapYear (year);
+
   return jalaliYearInfo (year).leap == 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Static, Jalali.
+// Static, in the calendar in use.
 int Datetime::daysInMonth (int year, int month)
 {
   // Protect against arguments being passed in the wrong order.
-  assert (year >= 1300 && year <= 9999);
+  assert (year >= (Datetime::jalali ? 1300 : 1969) && year <= 9999);
   assert (month >= 1 && month <= 12);
+
+  if (!Datetime::jalali)
+    return gregorianDaysInMonth (year, month);
 
   if (month <= 6)
     return 31;
@@ -3341,7 +3454,7 @@ int Datetime::daysInMonth (int year, int month)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Static, Jalali.
+// Static, in the calendar in use.
 int Datetime::daysInYear (int year)
 {
   return Datetime::leapYear (year) ? 366 : 365;
@@ -3362,21 +3475,19 @@ void Datetime::gregorianToJalali (int gy, int gm, int gd, int& jy, int& jm, int&
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Static, Jalali.
+// Static, in the calendar in use.
 std::string Datetime::monthName (int month)
 {
   assert (month > 0);
   assert (month <= 12);
-  return upperCaseFirst (monthNames[month - 1]);
+  return upperCaseFirst ((Datetime::jalali ? monthNames : gregorianMonthNames)[month - 1]);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Static, Jalali.
+// Static, in the calendar in use.
 std::string Datetime::monthNameShort (int month)
 {
-  assert (month > 0);
-  assert (month <= 12);
-  return upperCaseFirst (monthNames[month - 1]).substr (0, 3);
+  return monthName (month).substr (0, 3);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3385,16 +3496,14 @@ std::string Datetime::dayName (int dow)
 {
   assert (dow >= 0);
   assert (dow <= 6);
-  return upperCaseFirst (dayNames[dow]);
+  return upperCaseFirst ((Datetime::englishDayNames ? englishDayNameList : dayNames)[dow]);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Static
 std::string Datetime::dayNameShort (int dow)
 {
-  assert (dow >= 0);
-  assert (dow <= 6);
-  return upperCaseFirst (dayNames[dow]).substr (0, 3);
+  return dayName (dow).substr (0, 3);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3412,26 +3521,47 @@ int Datetime::dayOfWeek (const std::string& input)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Static, Jalali.  Returns 0 for Sunday, like tm_wday.
+// Static, in the calendar in use.  Returns 0 for Sunday, like tm_wday.
 int Datetime::dayOfWeek (int year, int month, int day)
 {
+  if (!Datetime::jalali)
+    return gregorianDayOfWeek (year, month, day);
+
   int gy, gm, gd;
   jalaliToGregorian (year, month, day, gy, gm, gd);
   return gregorianDayOfWeek (gy, gm, gd);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Static, Jalali.
+// Static, in the calendar in use.
 int Datetime::monthOfYear (const std::string& input)
 {
   if (Datetime::minimumMatchLength== 0)
     Datetime::minimumMatchLength = 3;
 
-  for (auto& alias : monthAliases)
+  for (auto& alias : Datetime::jalali ? monthAliases : gregorianMonthAliases ())
     if (closeEnough (alias.first, input, Datetime::minimumMatchLength))
        return alias.second;
 
   return -1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Static
+std::string Datetime::calendarHint (const std::string& value)
+{
+  int year;
+  char dash;
+  if (sscanf (value.c_str (), "%4d%c", &year, &dash) != 2 || dash != '-')
+    return "";
+
+  if (! Datetime::jalali && year >= 1300 && year < GREGORIAN_YEAR_THRESHOLD)
+    return "  With calendar=gregorian, dates are Gregorian: for Jalali dates, use 'task config "
+           "calendar jalali'.";
+  if (Datetime::jalali && year >= GREGORIAN_YEAR_THRESHOLD && year < 1980)
+    return "  With calendar=jalali, years before 1700 are Jalali and later ones Gregorian, and "
+           "dates start in 1980 (Jalali 1359).";
+  return "";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3461,8 +3591,9 @@ int Datetime::length (const std::string& format)
     case 'J':
     case 'a': len += 3;  break;
     case 'Y': len += 4;  break;
-    case 'A':
-    case 'B': len += 12; break;  // Chaharshanbe, Ordibehesht.
+    // As upstream (10), or Chaharshanbe and Ordibehesht (12).
+    case 'A': len += Datetime::englishDayNames ? 10 : 12; break;
+    case 'B': len += Datetime::jalali ? 12 : 10; break;
 
     // Calculate the width, don't assume a single character width.
     default:  len += mk_wcwidth (i); break;
@@ -3473,39 +3604,52 @@ int Datetime::length (const std::string& format)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Jalali.
+// In the calendar in use.
 int Datetime::month () const
 {
   int y, m, d;
-  epochToJalali (_date, y, m, d);
+  epochToDate (_date, y, m, d);
   return m;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Jalali week of the year, starting on Datetime::weekstart.  Week 1 is the
-// week containing Farvardin 1st.
+// With calendar=jalali, the week of the year, starting on Datetime::weekstart,
+// where week 1 contains Farvardin 1st.  With calendar=gregorian, as upstream:
+// %U for weeks starting on Sunday, %V (ISO) for Monday, and otherwise like %U,
+// for weeks starting on weekstart.
 int Datetime::week () const
 {
-  int y, m, d;
-  epochToJalali (_date, y, m, d);
-  return (dayOfYear () - 1 + daysIntoWeek (dayOfWeek (y, 1, 1))) / 7 + 1;
+  if (Datetime::jalali)
+  {
+    int y, m, d;
+    epochToDate (_date, y, m, d);
+    return (dayOfYear () - 1 + daysIntoWeek (dayOfWeek (y, 1, 1))) / 7 + 1;
+  }
+
+  struct tm* t = localtime (&_date);
+  if (Datetime::weekstart != 0 && Datetime::weekstart != 1)
+    return (t->tm_yday + 7 - daysIntoWeek (t->tm_wday)) / 7;
+
+  char weekStr[3];
+  strftime (weekStr, sizeof (weekStr), Datetime::weekstart == 0 ? "%U" : "%V", t);
+  return strtol (weekStr, nullptr, 10);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Jalali.
+// In the calendar in use.
 int Datetime::day () const
 {
   int y, m, d;
-  epochToJalali (_date, y, m, d);
+  epochToDate (_date, y, m, d);
   return d;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Jalali.
+// In the calendar in use.
 int Datetime::year () const
 {
   int y, m, d;
-  epochToJalali (_date, y, m, d);
+  epochToDate (_date, y, m, d);
   return y;
 }
 
@@ -3517,11 +3661,14 @@ int Datetime::dayOfWeek () const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Jalali.
+// In the calendar in use.
 int Datetime::dayOfYear () const
 {
+  if (!Datetime::jalali)
+    return localtime (&_date)->tm_yday + 1;
+
   int y, m, d;
-  epochToJalali (_date, y, m, d);
+  epochToDate (_date, y, m, d);
   return (m - 1) * 31 - (m / 7) * (m - 7) + d;
 }
 
