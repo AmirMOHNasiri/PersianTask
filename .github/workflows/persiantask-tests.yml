@@ -1,5 +1,7 @@
-# Builds PersianTask and runs the Jalali calendar tests, on every push to main
-# and every pull request.
+# Builds PersianTask and runs its tests, on every push to main and every pull
+# request.  A manual run (workflow_dispatch) also runs upstream Taskwarrior's
+# own tests with calendar=gregorian, which take several more minutes; the
+# weekly upstream sync runs them too.
 
 name: Tests
 
@@ -22,3 +24,7 @@ jobs:
 
       - name: Build and test
         run: bash persiantask/build-and-test.sh
+
+      - name: Upstream test suite
+        if: github.event_name == 'workflow_dispatch'
+        run: bash persiantask/upstream-tests.sh

@@ -53,6 +53,13 @@ set (PACKAGE_TARNAME "${PACKAGE}")
 set (PACKAGE_VERSION "${VERSION}")
 set (PACKAGE_STRING "${PACKAGE} ${VERSION}")
 
+# PersianTask: its own release, after upstream's version, as in
+# 3.5.0-persiantask.1, shown by 'task --version'.  PACKAGE_VERSION stays
+# upstream's, since 'task news' compares it as x.y.z.  Release tags are
+# v<VERSION>; see persiantask/release.sh.
+set (PERSIANTASK_RELEASE 1)
+set (VERSION "${PROJECT_VERSION}-persiantask.${PERSIANTASK_RELEASE}")
+
 if (FREEBSD OR DRAGONFLY)
 SET (TASK_MAN1DIR man/man1 CACHE STRING "Installation directory for man pages, section 1")
 SET (TASK_MAN5DIR man/man5 CACHE STRING "Installation directory for man pages, section 5")

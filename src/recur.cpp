@@ -62,9 +62,9 @@ std::optional<Datetime> checked_add_datetime(Datetime& base, time_t delta) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // PersianTask: periods whose dates depend on the calendar (months, quarters,
-// years, weekdays).  A recurring task with one keeps the calendar it was
-// created under, in 'rcalendar', so that changing the calendar setting never
-// changes the dates of its future instances.
+// years, weekdays).  A recurring task keeps the calendar it was created under,
+// in 'rcalendar' (set by Task::validate), so that changing the calendar setting
+// never changes the dates of its future instances.
 static bool calendarPeriod(const std::string& period) {
   if (period.empty()) return false;
   static const std::vector<std::string> named{
@@ -108,10 +108,12 @@ void handleRecurrence() {
   // Look at all tasks and find any recurring ones.
   for (auto& t : tasks) {
     if (t.getStatus() == Task::recurring) {
-      // PersianTask: the calendar the task was created under.
+      // PersianTask: the calendar the task was created under.  Tasks made
+      // before rcalendar existed, or by other clients, were made under the
+      // only calendar PersianTask had then: Jalali.
       bool stamped = false;
       if (!t.has("rcalendar") && calendarPeriod(t.get("recur"))) {
-        t.set("rcalendar", Datetime::jalali ? "jalali" : "gregorian");
+        t.set("rcalendar", "jalali");
         stamped = true;
       }
       CalendarGuard calendar(t.get("rcalendar"));

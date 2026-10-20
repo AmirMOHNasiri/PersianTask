@@ -179,6 +179,64 @@ def test_weekdays_and_weekend(task):
                                            if t["status"] != "recurring"))
 
 
+def test_rcalendar(task):
+    """Recurring tasks keep the calendar they were created under, in the
+    rcalendar UDA, which is declared, so that it is not an orphan."""
+    task.out("add", "Daily", "due:2026-10-18", "recur:daily")
+    task.out("rc.calendar:gregorian", "add", "Yearly", "due:2026-10-18", "recur:yearly")
+    parents = {t["description"]: t for t in task.export("status:recurring")}
+    check("Stamped when created, before any report", parents["Daily"].get("rcalendar"), "jalali")
+    check("Stamped with the calendar in use", parents["Yearly"].get("rcalendar"), "gregorian")
+
+    out = task.out("rc.verbose:on", "udas")
+    check_true("task udas lists rcalendar as a UDA", re.search(r"rcalendar\s+string", out), out)
+    check_true("task udas finds no orphans", "rphan" not in out, out)
+    out = task.out("rc.verbose:on", "status:recurring", "description:Daily", "info")
+    check_true("task info shows the calendar, labelled",
+               re.search(r"Recurrence calendar\s+jalali", out) and "rphan" not in out, out)
+    out = task.out("diag")
+    check_true("task diag finds no orphans", "rphan" not in out, out)
+    code, out, err = task.run("status:recurring", "description:Daily", "modify", "rcalendar:persian")
+    check_true("Only jalali and gregorian are accepted", code != 0, out + err)
+
+
+def test_rcalendar_old_tasks(task):
+    """A recurring task made before rcalendar existed has none, and is given
+    jalali, the only calendar of earlier versions, whatever the setting."""
+    # 2026-08-01 is 10 Mordad 1405: a Jalali month later is 2026-09-01, and
+    # two are 2026-10-02, where Gregorian months give 2026-10-01.
+    off = "rc.recurrence:off"  # No instances yet.
+    task.out(off, "add", "Old", "due:2026-08-01", "recur:monthly")
+    uuid = task.export(off, "status:recurring")[0]["uuid"]
+    task.out(off, "rc.confirmation:off", "rc.recurrence.confirmation:no", uuid, "modify",
+             "rcalendar:")
+    parent = task.export(off, uuid)[0]
+    check_true("Like an old task: no rcalendar, no instances",
+               "rcalendar" not in parent and not parent.get("mask"), parent)
+
+    task.out("rc.calendar:gregorian", "list")
+    parent = task.export(uuid)[0]
+    check("An old task is given jalali, even with calendar=gregorian",
+          parent.get("rcalendar"), "jalali")
+    dues = sorted(t["due"][:8] for t in task.export("parent:" + uuid))
+    check_true("... and its instances follow Jalali months",
+               "20260901" in dues and "20261002" in dues and "20261001" not in dues, dues)
+
+
+def test_weekstart_hint(task):
+    """Switching to the Gregorian calendar suggests, but does not change,
+    weekstart."""
+    hint = "weekstart is still saturday; set it with 'task config weekstart monday' if you want"
+    out = task.out("rc.confirmation:off", "config", "calendar", "gregorian")
+    check_true("A hint when weekstart is still saturday", hint in out, out)
+    check("weekstart is not changed", task.out("_get", "rc.weekstart"), "saturday")
+    out = task.out("rc.confirmation:off", "config", "calendar", "jalali")
+    check_true("No hint when switching to jalali", "weekstart" not in out, out)
+    task.out("rc.confirmation:off", "config", "weekstart", "monday")
+    out = task.out("rc.confirmation:off", "config", "calendar", "gregorian")
+    check_true("No hint with another weekstart", "weekstart" not in out, out)
+
+
 def test_schedule(task):
     """The schedule follows both settings; day sections accept both styles."""
     os.makedirs(os.path.join(task.dir, "data"), exist_ok=True)
@@ -201,4 +259,5 @@ def test_schedule(task):
 if __name__ == "__main__":
     sys.exit(run_tests([test_display, test_calendar_view, test_named_dates, test_numeric_dates,
                         test_switching_keeps_data, test_settings, test_weekdays_and_weekend,
+                        test_rcalendar, test_rcalendar_old_tasks, test_weekstart_hint,
                         test_schedule], fresh=True))

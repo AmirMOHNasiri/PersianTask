@@ -64,7 +64,7 @@ jobs:
       - name: Build and test
         if: steps.fetch.outputs.pending == 'true'
         shell: bash  # Implies pipefail, so that a failure is not hidden by tee.
-        run: bash persiantask/build-and-test.sh | tee test-results.txt
+        run: PERSIANTASK_UPSTREAM_TESTS=1 bash persiantask/build-and-test.sh | tee test-results.txt
 
       - name: Open pull request
         if: steps.fetch.outputs.pending == 'true'

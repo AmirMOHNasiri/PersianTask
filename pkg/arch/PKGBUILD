@@ -1,7 +1,7 @@
 # Maintainer: AmirMOHNasiri <deadlyphoenix975 at gmail dot com>
 
 pkgname=persiantask-git
-pkgver=r12062.b1da40b45
+pkgver=3.5.0_persiantask.1.r0.g000000000
 pkgrel=1
 pkgdesc="Taskwarrior with the Jalali (Shamsi) calendar"
 arch=('x86_64')
@@ -17,9 +17,17 @@ source=("$pkgname::git+https://github.com/AmirMOHNasiri/PersianTask.git#branch=m
         "corrosion::git+https://github.com/corrosion-rs/corrosion.git")
 sha256sums=('SKIP' 'SKIP')
 
+# The last release, then the commits since: v3.5.0-persiantask.1 and 5 more
+# commits is 3.5.0_persiantask.1.r5.g<commit>, since pacman versions cannot
+# contain '-'.  Without a release tag, 0.r<commits>.g<commit>.
 pkgver() {
   cd "$pkgname"
-  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  local release
+  if release=$(git describe --long --tags --match 'v*-persiantask.*' 2> /dev/null); then
+    echo "$release" | sed -E 's/^v//; s/-persiantask\./_persiantask./; s/-([0-9]+)-g/.r\1.g/'
+  else
+    printf "0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  fi
 }
 
 prepare() {

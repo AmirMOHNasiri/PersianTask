@@ -2,7 +2,7 @@
 
 **Taskwarrior with the Jalali (Persian / Shamsi) calendar, and a weekly schedule**
 
-PersianTask is a version of [Taskwarrior](https://taskwarrior.org) in which all dates, both entered and displayed, use the Jalali calendar, the official calendar of Iran. It also plans your week: a [weekly schedule](#weekly-schedule) of time slots, each of which pulls the right task to work on. Everything else works exactly like Taskwarrior. Upstream Taskwarrior updates are merged every week, once they pass the Jalali calendar tests.
+PersianTask is a version of [Taskwarrior](https://taskwarrior.org) in which all dates, both entered and displayed, use the Jalali calendar, the official calendar of Iran. It also plans your week: a [weekly schedule](#weekly-schedule) of time slots, each of which pulls the right task to work on. Everything else works exactly like Taskwarrior. Upstream Taskwarrior updates are merged every week, once they pass the Jalali calendar tests. What each release brings is in [CHANGELOG.md](../CHANGELOG.md).
 
 ```
 $ task add meeting due:1405-08-01
@@ -111,6 +111,8 @@ Describe your typical week once, as a template of time slots: classes, study blo
    task schedule init
    ```
 
+   The very first time you run `task`, it offers to create `~/.taskrc`: answer `yes`.
+
 3. Edit `~/.task/schedule`: your categories, and your slots for each day, `[shanbe]` to `[jome]`. A slot is one line:
 
    ```
@@ -184,7 +186,7 @@ Three ordinary Taskwarrior settings, changed with `task config` and shown by `ta
 | `dayname.style` | `finglish` (Shanbe, Yekshanbe, ...) or `english` (Saturday, Sunday, ...) | `finglish` |
 | `weekstart` | any day | `saturday` |
 
-They are independent: `task config calendar gregorian` with Finglish day names works, and so does Jalali with English ones. Day names are accepted in both styles when typing, whatever `dayname.style` says.
+They are independent: `task config calendar gregorian` with Finglish day names works, and so does Jalali with English ones. Day names are accepted in both styles when typing, whatever `dayname.style` says. `task config calendar gregorian` does not change `weekstart`, but reminds you if it is still `saturday`.
 
 With `calendar=gregorian`, everything is as in upstream Taskwarrior: Gregorian dates and month names, `sow` and `soww` starting on Monday, Saturday and Sunday as the weekend in `task calendar`, and `recur:weekdays` meaning Monday to Friday. With `calendar=jalali`, weeks follow `weekstart`, the weekend is Thursday and Friday, and `recur:weekdays` means Saturday to Wednesday.
 
@@ -201,7 +203,15 @@ So with `calendar=jalali` both kinds of date work, since a Jalali year (1359 to 
 
 ### Changing the calendar is safe
 
-Tasks are stored as points in time, so switching `calendar` or `dayname.style` changes only how dates are shown and typed, never your data: `task export` gives the same result either way. A recurring task whose period depends on the calendar (`monthly`, `yearly`, `weekdays` and the like) remembers the calendar it was created under, and keeps making its instances by that calendar's months and weekdays; it records this in an `rcalendar` attribute.
+Tasks are stored as points in time, so switching `calendar` or `dayname.style` changes only how dates are shown and typed, never your data: `task export` gives the same result either way.
+
+Recurring tasks need one more thing, since "every month" means different dates in the two calendars. A recurring task remembers the calendar it was created under, in an attribute called `rcalendar` (shown by `task info` as "Recurrence calendar"), and keeps making its instances by that calendar's months and weekdays, whatever the setting says later.
+
+- Recurring tasks from earlier versions have no `rcalendar`. They are given `jalali`, the only calendar there was when they were made.
+- `task <id> modify rcalendar:gregorian`, on the recurring task itself (see `task recurring`), changes it for the instances made from then on.
+- Unmodified Taskwarrior and other clients keep `rcalendar` as an unknown attribute, without harm, also when the task is edited there. They make instances by Gregorian months, though, so if you sync with them, let only PersianTask make instances: `task config recurrence off` on the others, as upstream advises for any sync setup.
+
+[docs/calendar.md](../docs/calendar.md) has the details.
 
 ## Notes
 
@@ -212,14 +222,14 @@ Tasks are stored as points in time, so switching `calendar` or `dayname.style` c
 ## What changed from Taskwarrior
 
 - `src/libshared/src/Datetime.cpp`: Jalali conversion (Borkowski's algorithm, which matches the official Iranian calendar), parsing and display, and the `calendar` and `dayname.style` settings. Until configured, the library behaves exactly as upstream.
-- `src/commands/CmdCalendar.cpp`, `src/recur.cpp`, `src/Context.cpp`: the calendar view, recurrence, and weeks starting on Saturday.
+- `src/commands/CmdCalendar.cpp`, `src/recur.cpp`, `src/Task.cpp`, `src/Context.cpp`, `src/commands/CmdConfig.cpp`, `src/commands/CmdShow.cpp`, `src/columns/ColTypeDate.cpp`: the calendar view, recurrence, the settings, and weeks starting on Saturday.
 - `src/schedule/`: the weekly schedule, and `examples/schedule/student-week`, the example template.
 - `src/CLI2.cpp`: a hook so that plain `task` can show the schedule.
 - `persiantask/`: the tests, and the scripts that build packages and merge upstream updates.
 - `.github/workflows/persiantask-*.yml`: runs the tests, and merges upstream every week.
 - `pkg/arch/PKGBUILD`: the Arch Linux package, and `pkg/arch/persiantask.asc`, the key that signs the prebuilt packages.
 
-To run the tests: `bash persiantask/build-and-test.sh`. It also runs upstream Taskwarrior's own test suite with `calendar=gregorian`; `persiantask/upstream-known-failures` lists the upstream tests that fail, and why.
+To run the tests: `bash persiantask/build-and-test.sh`. With `PERSIANTASK_UPSTREAM_TESTS=1`, it also runs upstream Taskwarrior's own test suite with `calendar=gregorian`, which takes several more minutes; `persiantask/upstream-known-failures` lists the upstream tests that fail, and why.
 
 ## License
 

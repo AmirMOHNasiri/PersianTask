@@ -36,7 +36,7 @@ makepkg --noconfirm
 
 # makepkg does not fail on every packaging error (such as running out of
 # space while stripping), so check that the packaged task actually runs.
-pkg=$(ls persiantask-r*-x86_64.pkg.tar.zst)
+pkg=$(ls persiantask-[0-9]*-x86_64.pkg.tar.zst)
 bsdtar -xf "$pkg" usr/bin/task
 if ! version=$(./usr/bin/task --version); then
   echo "The task binary in $pkg does not run." >&2

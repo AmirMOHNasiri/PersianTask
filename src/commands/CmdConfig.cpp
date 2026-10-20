@@ -29,6 +29,7 @@
 
 #include <CmdConfig.h>
 #include <Context.h>
+#include <Datetime.h>
 #include <JSON.h>
 #include <format.h>
 #include <shared.h>
@@ -200,6 +201,11 @@ int CmdConfig::execute(std::string& output) {
         out << format("Config file {1} modified.", Context::getContext().config.file()) << '\n';
       } else
         out << "No changes made.\n";
+
+      // PersianTask: the calendar does not change weekstart (6 is Saturday).
+      if (name == "calendar" && value == "gregorian" && Datetime::weekstart == 6)
+        out << "weekstart is still saturday; set it with 'task config weekstart monday' if you "
+               "want.\n";
     } else
       throw std::string("Specify the name of a config variable to modify.");
 

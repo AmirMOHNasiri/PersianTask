@@ -3,12 +3,17 @@
 #
 # The package build runs the Jalali calendar tests, so a package is only
 # published if they pass.  It is signed if the GPG_PRIVATE_KEY secret is set.
+#
+# A release tag, such as v3.5.0-persiantask.1 (see persiantask/release.sh),
+# also creates its GitHub release, with the package, and its section of
+# CHANGELOG.md as the notes.
 
 name: Package
 
 on:
   push:
     branches: [main]
+    tags: ["v*-persiantask.*"]  # Tags ignore paths-ignore.
     paths-ignore:
       - "**.md"
   workflow_dispatch:
@@ -38,9 +43,33 @@ jobs:
           chown -R builder "$GITHUB_WORKSPACE"
           su builder -c "git config --global --add safe.directory '$GITHUB_WORKSPACE' && bash '$GITHUB_WORKSPACE/persiantask/build-package.sh'"
 
+      - name: Check the release version
+        if: github.ref_type == 'tag'
+        run: |
+          cd persiantask/out
+          bsdtar -xf persiantask-[0-9]*-x86_64.pkg.tar.zst usr/bin/task
+          version=$(./usr/bin/task --version)
+          rm -r usr
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "The package is version $version, but the tag is $GITHUB_REF_NAME." >&2
+            exit 1
+          fi
+
       - name: Publish repository
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: bash persiantask/publish-repo.sh
+
+      - name: Create the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          bash persiantask/release-notes.sh "$version" > release-notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --latest \
+            --title "PersianTask $version" --notes-file release-notes.md \
+            persiantask/out/persiantask-[0-9]*-x86_64.pkg.tar.zst*

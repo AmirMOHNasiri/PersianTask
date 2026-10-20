@@ -15,7 +15,7 @@ set -euo pipefail
 TAG=repo
 cd "$(dirname "$0")/out"
 
-pkg=$(ls persiantask-r*-x86_64.pkg.tar.zst)
+pkg=$(ls persiantask-[0-9]*-x86_64.pkg.tar.zst)
 files=("$pkg")
 sign=()
 

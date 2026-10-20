@@ -1488,6 +1488,11 @@ void Task::validate(bool applyDefault /* = true */) {
     set("rtype", "periodic");
   }
 
+  // PersianTask: a new recurring task keeps the calendar it was created under
+  // (see handleRecurrence).
+  if (applyDefault && status == Task::recurring && !has("rcalendar"))
+    set("rcalendar", Datetime::jalali ? "jalali" : "gregorian");
+
   // Store the derived status.
   setStatus(status);
 
