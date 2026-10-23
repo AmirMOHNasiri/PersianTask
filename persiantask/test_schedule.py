@@ -276,7 +276,7 @@ def test_fallback(task):
     task.out("add", "OS2", "project:os")
     task.out("add", "DS1", "project:ds")
     task.out("add", "T1", "+term")
-    task.out("add", "S1", "due:now+2d")
+    task.out("add", "S1", "due:2026-10-19T12:00:00")  # Two days after NOW.
     task.out("add", "Waiting", "project:ds", "wait:now+30d")
     task.out("add", "Blocker")
     task.out("add", "Blocked", "project:ds", "priority:H", "depends:7")
