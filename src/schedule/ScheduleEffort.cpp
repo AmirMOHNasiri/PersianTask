@@ -83,7 +83,9 @@ std::vector<std::pair<time_t, time_t>> trackedIntervals(const Task& task) {
   auto& replica = Context::getContext().tdb2.replica();
   auto tcoperations = replica->get_task_operations(tc::uuid_from_string(task.get("uuid")));
   auto operations = Operation::operations(tcoperations);
-  std::sort(operations.begin(), operations.end());
+  // Stable: updates in the same second compare equal, and must keep the order
+  // they were made in, such as 'task start' and then 'task modify start:...'.
+  std::stable_sort(operations.begin(), operations.end());
 
   std::vector<std::pair<time_t, time_t>> intervals;
   std::optional<time_t> started;

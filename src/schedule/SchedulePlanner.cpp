@@ -611,7 +611,7 @@ void Planner::computePaces(const Week& week) {
   auto graceDays = static_cast<time_t>(_template.overdueCriticalDays) * 86400;
 
   struct Capacity {
-    long own{0}, reachable{0}, ownThisWeek{0}, reachableThisWeek{0};
+    long own{0}, reachable{0}, ownThisWeek{0};
   };
   std::vector<Capacity> capacity(pool.size());
   std::vector<long> remaining(pool.size(), 0);
@@ -680,7 +680,6 @@ void Planner::computePaces(const Week& week) {
         earliest = earliest ? std::min(earliest, due[i]) : due[i];
         auto& c = capacity[i];
         c.reachable += seconds;
-        if (k == 0) c.reachableThisWeek += seconds;
         if (own) {
           c.own += seconds;
           if (k == 0) c.ownThisWeek += seconds;
@@ -713,14 +712,18 @@ void Planner::computePaces(const Week& week) {
     pace.laxity = c.reachable - remaining[i];
     pace.critical = pace.laxity <= 0;
 
-    // Spread over its own slots if they are enough, or else over all it can
-    // reach, which grow as the due date nears.
-    double share = 1;
+    // This week's share: at least even progress, this week's part of the
+    // time until it is due, so that slots it can reach only near the due
+    // date (through 'soon', say) never push its work to the last days.  If
+    // its own slots can hold all its work, and this week has more than its
+    // part of them, the share follows them.
+    auto weekEnd = std::min<time_t>(week.end().toEpoch(), due[i]);
+    double share = due[i] > reference
+                       ? static_cast<double>(weekEnd - reference) / (due[i] - reference)
+                       : 1;
     if (c.own >= remaining[i] && c.own > 0)
-      share = static_cast<double>(c.ownThisWeek) / c.own;
-    else if (c.reachable > 0)
-      share = static_cast<double>(c.reachableThisWeek) / c.reachable;
-    pace.quota = static_cast<long>(remaining[i] * share + 0.5);
+      share = std::max(share, static_cast<double>(c.ownThisWeek) / c.own);
+    pace.quota = static_cast<long>(remaining[i] * std::min(share, 1.0) + 0.5);
 
     Task task = pool[i];
     task.recalc_urgency = true;

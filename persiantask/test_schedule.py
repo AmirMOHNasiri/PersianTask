@@ -1553,8 +1553,10 @@ def test_pacing_spreads(task):
     check("This week: P takes its share first, then Q", days(found, "p"),
           ["", "P", "P", "P", "Q", "Q", "Q"])
     check_true("P is on track", "on track" in found["sun-p"][2], found["sun-p"])
+    # 12h left, due 13 days after next week starts: 7/13 of it, 6.5h, so
+    # four 2h slots.
     found = slots(task.out(NOW, "schedule", "week", "next"))
-    check("Next week: its share again", days(found, "p"), ["P", "P", "P", "Q", "Q", "Q", "Q"])
+    check("Next week: its share again", days(found, "p"), ["P", "P", "P", "P", "Q", "Q", "Q"])
 
     write_template(task, PACE.replace("fallback = soon rest", "fallback = soon rest\npacing = off"))
     out = task.out(NOW, "schedule", "week")
@@ -2034,6 +2036,70 @@ def test_compact_layout(task):
                "fallback" in out and "from the fallback chain" not in out, out)
 
 
+REPORTED = """
+[settings]
+estimate.factor = 1.5
+max.per-day     = 3h
+fallback        = soon term ds rest
+
+[categories]
+db       1  project:db
+ds       4  project:ds
+soon     -  due.before:now+7d
+term     -  +term
+project  -  +project
+
+[shanbe]
+07:30-10:30  sat-research   study  ds
+10:45-12:00  sat-ds         study  ds
+
+[yekshanbe]
+15:00-15:45  sun-net-rev    study  ds
+
+[doshanbe]
+13:30-16:30  mon-research   study  ds
+
+[seshanbe]
+20:30-21:30  tue-db-slides  study  db
+
+[chaharshanbe]
+07:00-10:00  wed-research   study  ds
+14:00-15:30  wed-ds         study  ds
+
+[panjshanbe]
+07:00-09:00  thu-ds         study  ds
+"""
+
+
+def test_pace_is_even(task):
+    """The reported case: a 6h project (9h planned) due in 2.5 weeks, with
+    1h a week of its own slots, and 'project' not in the fallback chain, so
+    that other slots reach it only through 'soon', on the weekend before it
+    is due.
+    Its share of next week is even progress (about 3.75h), not the little
+    left after counting on the slots that 'soon' gives it in its last days,
+    so with 1h planned it is behind, not on track."""
+    write_template(task, REPORTED)
+    task.out("add", "DB", "project:db", "+project", "estimate:6h", "due:1405-08-18T23:59")
+    friday_night = "rc.schedule.now:2026-10-23T23:28:00"
+    found = slots(task.out(friday_night, "schedule", "week", "next"))
+    check("Only its own slot reaches it", [found[s][1] for s in ("tue-db-slides", "wed-ds")],
+          ["DB", "nothing to do"])
+    check_true("... and it is behind", "behind 2.75h" in found["tue-db-slides"][2],
+               found["tue-db-slides"])
+
+    # With 'project' in the chain, the free slots take it, up to 3h a day.
+    write_template(task, REPORTED.replace("fallback        = soon term ds rest",
+                                          "fallback        = soon term project ds rest"))
+    found = slots(task.out(friday_night, "schedule", "week", "next"))
+    # Shanbe 3h (sat-ds would pass 3h), Yekshanbe 0.75h, Doshanbe 3h,
+    # Seshanbe 1h, Chaharshanbe 3h (wed-ds would pass 3h): its 9h are planned.
+    check("Free slots take it, within max.per-day, until its work is planned",
+          [found[s][1] for s in ("sat-research", "sat-ds", "sun-net-rev", "mon-research",
+                                 "tue-db-slides", "wed-research", "wed-ds", "thu-ds")],
+          ["DB", "nothing to do", "DB", "DB", "DB", "DB", "nothing to do", "nothing to do"])
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -2057,4 +2123,4 @@ if __name__ == "__main__":
                         test_over_estimate_and_left, test_ask_estimate,
                         test_left_like_modify, test_everyday_partly_replaced,
                         test_project_left_after_earlier_weeks, test_work_conserving,
-                        test_compact_layout, test_help], fresh=True))
+                        test_compact_layout, test_pace_is_even, test_help], fresh=True))
