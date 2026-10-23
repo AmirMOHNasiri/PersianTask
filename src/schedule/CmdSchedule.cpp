@@ -422,7 +422,7 @@ int CmdSchedule::check(const std::vector<std::string>& args, std::string& output
     if (changes.first < thisWeek) continue;
 
     Week week(tmpl, Datetime(changes.first), &state);
-    Planner planner(tmpl, week.reference());
+    Planner planner(tmpl, week.reference(), std::make_shared<Horizon>(tmpl, &state));
     planner.plan(week);
 
     std::vector<std::string> notes = week.notes;

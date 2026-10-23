@@ -51,8 +51,9 @@ std::string renderHours(const Template&, const std::vector<Assignment>&, Planner
 // time has been tracked.
 std::string describeEffort(const Effort&);
 
-// The notes of a week and its plan, one line each.
+// The notes of a week and its plan, one line each, starting with overloads.
 std::string renderNotes(const Week&, const Planner&);
+std::string renderOverloads(const Planner&);
 
 }  // namespace schedule
 

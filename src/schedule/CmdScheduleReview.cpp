@@ -80,7 +80,7 @@ WeekReview reviewWeek(const Template& tmpl, const State& state, const Datetime& 
     review.floors[category.name] = week.floorOf(tmpl, category.name);
 
   // Planned: slot lengths after this week's changes.
-  Planner planner(tmpl, week.reference());
+  Planner planner(tmpl, week.reference(), std::make_shared<Horizon>(tmpl, &state));
   auto assignments = planner.plan(week);
   for (auto& entry : planner.minutesByCategory(assignments))
     review.planned[entry.first] = entry.second * 60L;
@@ -299,6 +299,11 @@ int CmdSchedule::review(std::vector<std::string> args, std::string& output) {
     }
     if (!any) out << "    None.\n";
   }
+
+  // Whether the work due fits in the slots before it, from now on.
+  WeekPlan current(tmpl, now.startOfDay(), &state);
+  auto overloads = renderOverloads(current.planner);
+  if (!overloads.empty()) out << "  " << overloads;
 
   output = out.str();
   return 0;

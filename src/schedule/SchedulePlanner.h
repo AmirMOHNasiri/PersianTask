@@ -19,7 +19,9 @@
 
 #include <deque>
 #include <map>
+#include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -137,6 +139,58 @@ struct Effort {
   long remaining{0};
 };
 
+// How a task with an estimate and a due date stands, for one week's plan.
+// Times are in seconds.  Capacity is the time of the slots it may work in,
+// from the reference time until it is due: its own (whose own filter matches
+// it) and all those it can reach (its own, and those whose fallback chain
+// matches it).  Laxity is the reachable capacity less the remaining work.
+struct Pace {
+  bool paced{false};     // Planned to keep pace.
+  bool overdue{false};   // At the reference time.
+  bool critical{false};  // Laxity at most zero, or overdue for less than the grace period.
+  long remaining{0};
+  long own{0};
+  long reachable{0};
+  long laxity{0};
+  long quota{0};    // This week's share of the remaining work.
+  float urgency{0};
+};
+
+// Work due by a date that the slots before it cannot hold (see overloads()).
+struct Overload {
+  time_t due{0};
+  long work{0};
+  long capacity{0};
+};
+
+// What planning needs beyond one week, shared by the planners of one run:
+// the weeks ahead, and which tasks with estimates and due dates each filter
+// matches, as of each week's reference time.
+class Horizon {
+ public:
+  static const int weeks = 26;
+
+  Horizon(const Template&, const State*);
+  Horizon(const Horizon&) = delete;
+  Horizon& operator=(const Horizon&) = delete;
+
+  const Week& week(const Datetime& start);
+
+  // Pending tasks with an estimate and a due date.
+  const std::vector<Task>& pool() const { return _pool; }
+
+  // Indexes into the pool of the tasks matching the filter.
+  const std::vector<int>& matches(const std::string& filter, time_t reference);
+
+ private:
+  const Template& _template;
+  const State* _state;
+  std::vector<Task> _pool;
+  std::map<time_t, std::unique_ptr<Week>> _weeks;
+  std::map<std::pair<std::string, time_t>, std::vector<int>> _matches;
+  std::map<std::string, bool> _independent;  // Of the time, by filter.
+};
+
 struct Assignment {
   const Instance* instance{nullptr};
   std::optional<Task> task;
@@ -153,7 +207,7 @@ struct Assignment {
 // tasks, never writes anything.
 class Planner {
  public:
-  Planner(const Template&, const Datetime& reference);
+  Planner(const Template&, const Datetime& reference, std::shared_ptr<Horizon> = nullptr);
 
   std::vector<Assignment> plan(const Week&);
   std::vector<Task> matching(const std::string& filter);
@@ -191,8 +245,21 @@ class Planner {
   void carry(const std::map<std::string, long>& planned) { _carried = planned; }
   std::map<std::string, long> carried() const;
 
+  // After plan(): how a task stands, or nullptr if it is not paced.
+  const Pace* pace(const Task&) const;
+  // Time planned for the task this week, after the reference time.
+  long planned(const Task&) const;
+
+  // After plan(): due dates by which the work due exceeds the time of the
+  // slots that can hold it, counting each slot once.
+  std::vector<Overload> overloads;
+
  private:
   long left(const Task&);
+  void computePaces(const Week&);
+  bool critical(const std::string& uuid) const;
+  bool contains(const std::string& filter, const std::string& uuid);
+  std::string homeFilter(const Instance&) const;
 
   std::optional<Task> pick(const std::string& filter, const Instance&);
   void use(const Task&, const Instance&);
@@ -208,6 +275,10 @@ class Planner {
   std::map<std::string, long> _left;                     // Remaining, during plan().
   std::map<std::string, long> _carried;                  // Planned in earlier weeks.
   std::map<std::string, long> _consumed;                 // Planned by plan().
+  std::map<std::pair<std::string, time_t>, long> _usedTime;  // Seconds per task per day.
+  std::map<std::string, Pace> _paces;                        // By uuid.
+  std::map<std::string, std::set<std::string>> _matchSets;   // Of matching(), by filter.
+  std::shared_ptr<Horizon> _horizon;
 };
 
 // A week and its plan.  A week after the current one is planned after the
@@ -219,6 +290,7 @@ class WeekPlan {
   WeekPlan(const WeekPlan&) = delete;
   WeekPlan& operator=(const WeekPlan&) = delete;
 
+  std::shared_ptr<Horizon> horizon;  // Shared by the weeks planned.
   Week week;
   Planner planner;
   std::vector<Assignment> assignments;

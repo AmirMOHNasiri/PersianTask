@@ -1514,6 +1514,184 @@ def test_due_change(task):
           ["D", "D", "D", "nothing to do"])
 
 
+PACE = """
+[settings]
+fallback = soon rest
+
+[categories]
+proj  -   project:proj
+os    -   project:os
+soon  -   due.before:now+7d
+
+[everyday]
+09:00-11:00  p  study  proj
+14:00-16:00  o  study  os
+"""
+
+
+def days(found, slot, field=1):
+    return [found.get(d + "-" + slot, ("", "", ""))[field] for d in WEEK]
+
+
+def test_pacing_spreads(task):
+    """A long task due in three weeks gets its share every week, instead of
+    nothing until its last week, even next to a more urgent task."""
+    write_template(task, PACE)
+    task.out("add", "Q", "project:proj", "priority:H", "estimate:30h")
+    task.out("add", "P", "project:proj", "due:1405-08-15T23:59", "estimate:18h")
+    found = slots(task.out(NOW, "schedule", "week"))
+    # Shanbe's slot is past.  18h over about 38h of its slots: 3 of this
+    # week's 6 future slots.
+    check("This week: P takes its share first, then Q", days(found, "p"),
+          ["P", "P", "P", "P", "Q", "Q", "Q"])
+    check_true("P is on track", "on track" in found["sun-p"][2], found["sun-p"])
+    found = slots(task.out(NOW, "schedule", "week", "next"))
+    check("Next week: its share again", days(found, "p"), ["P", "P", "P", "Q", "Q", "Q", "Q"])
+
+    write_template(task, PACE.replace("fallback = soon rest", "fallback = soon rest\npacing = off"))
+    out = task.out(NOW, "schedule", "week")
+    check("pacing = off: by urgency, as before", days(slots(out), "p"), ["Q"] * 7)
+    check_true("pacing = off: no Pace column", "Pace" not in out, out)
+
+
+def test_pace_and_overload(task):
+    """Two tasks that each fit, but not together: the one planned first is on
+    track, the other behind, and the week warns of the overload, counting
+    shared slots once."""
+    write_template(task, PACE.replace("14:00-16:00  o  study  os", "13:00-15:00  q  study  proj"))
+    task.out("add", "A", "project:proj", "due:1405-07-27T23:59", "estimate:6h")
+    task.out("add", "B", "project:proj", "due:1405-07-27T23:59", "estimate:6h")
+    out = task.out(NOW, "schedule", "week")
+    found = slots(out)
+    # Before Doshanbe 23:59: Shanbe 13:00, and two slots on each of Yekshanbe
+    # and Doshanbe, 10h for 12h of work.
+    check("A first, then B", [found[s][1] for s in ("sat-q", "sun-p", "sun-q", "mon-p", "mon-q")],
+          ["A", "A", "A", "B", "B"])
+    check_true("A on track", "on track" in found["sun-p"][2], found["sun-p"])
+    check_true("B behind 2h", "behind 2h" in found["mon-p"][2], found["mon-p"])
+    check_true("The overload", "Overloaded before Doshanbe 27 Mehr: 12h of work, 10h of slots."
+               in out, out)
+    check_true("The overload in today", "Overloaded before" in task.out(NOW, "schedule"),
+               task.out(NOW, "schedule"))
+    check_true("The overload in the review", "Overloaded before" in
+               task.out(NOW, "schedule", "review"), task.out(NOW, "schedule", "review"))
+
+    # A due date change applies at once: B, due later, is no longer behind.
+    task.out("2", "modify", "due:1405-08-06T23:59")
+    out = task.out(NOW, "schedule", "week")
+    check_true("After moving B's due date: no overload", "Overloaded" not in out, out)
+    check_true("... and B is on track", all("behind" not in row[2] for row in slots(out).values()),
+               out)
+
+
+def test_critical(task):
+    """A task that cannot be finished in time takes the slots it can reach,
+    even another category's, while that category keeps its floor."""
+    template = PACE.replace("os    -   project:os", "os    11  project:os")
+    write_template(task, template)
+    task.out("add", "C", "project:proj", "due:1405-07-27T23:59", "estimate:12h")
+    task.out("add", "O", "project:os", "estimate:30h")
+    out = task.out(NOW, "schedule", "week")
+    found = slots(out)
+    # C can use 4h of proj slots and 6h of os slots (through soon): 2h short.
+    check("C takes its own slots", [found[s][1] for s in ("sun-p", "mon-p")], ["C", "C"])
+    check("... and os slots only while os keeps its floor of 11h (14h a week)",
+          [found[s][1] for s in ("sat-o", "sun-o", "mon-o")], ["C", "O", "O"])
+    check_true("C is short", "short 2h" in found["sun-p"][2], found["sun-p"])
+    check_true("A note says it cannot be finished",
+               "Task 1 'C' cannot be finished before it is due" in out and "2h short" in out, out)
+
+    write_template(task, template.replace("os    11  project:os", "os    4   project:os"))
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("With a lower floor, all the os slots it can reach",
+          [found[s][1] for s in ("sat-o", "sun-o", "mon-o", "tue-o")], ["C", "C", "C", "O"])
+
+    write_template(task, template.replace("os    11  project:os", "os    4   project:os")
+                   .replace("study  os", "study  os  protected"))
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("Never a protected slot", [found[s][1] for s in ("sat-o", "sun-o")], ["O", "O"])
+
+
+def test_behind_through_fallback(task):
+    """A task behind pace takes empty slots its fallback chain reaches,
+    before the chain's earlier steps."""
+    template = """
+[settings]
+fallback = term soon rest
+
+[categories]
+free  -  project:free
+term  -  +term
+soon  -  due.before:now+7d
+
+[everyday]
+14:00-16:00  s  study  free
+"""
+    write_template(task, template)
+    task.out("add", "T", "+term")
+    task.out("add", "F", "project:f", "due:1405-07-29T23:59", "estimate:4h")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("F first, until its share is planned, then term", days(found, "s"),
+          ["F", "F", "T", "T", "T", "T", "T"])
+    write_template(task, template.replace("fallback = term soon rest",
+                                          "fallback = term soon rest\npacing = off"))
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("pacing = off: term comes first", days(found, "s"), ["T"] * 7)
+
+
+def test_max_per_day(task):
+    template = """
+[settings]
+max.per-day = 2
+
+[categories]
+proj  -  project:proj
+
+[everyday]
+08:00-10:00  a  study  proj
+13:00-15:00  b  study  proj
+"""
+    write_template(task, template)
+    task.out("add", "L", "project:proj", "estimate:20h")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("At most 2h of a task a day", (days(found, "a"), days(found, "b")),
+          (["L"] * 7, ["nothing to do"] * 7))
+
+    # A critical task is not limited: 12h due Doshanbe, with 10h of slots.
+    task.out("add", "K", "project:proj", "due:1405-07-27T23:59", "estimate:12h")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("A critical task takes whole days", [found[s][1] for s in ("sun-a", "sun-b")],
+          ["K", "K"])
+
+
+def test_overdue_grace(task):
+    """An overdue task is critical for overdue.critical-days, and then
+    planned as usual, still marked overdue."""
+    write_template(task, PACE)
+    task.out("add", "D", "project:proj", "due:1405-07-22", "estimate:10h")  # 3 days ago.
+    task.out("add", "O", "project:os", "estimate:30h")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("Within the grace period: critical, it takes os slots too",
+          [found[s][1] for s in ("sat-o", "sun-o")], ["D", "D"])
+    check_true("marked overdue", "overdue" in found["sat-o"][2], found["sat-o"])
+
+    write_template(task, PACE.replace("fallback = soon rest",
+                                      "fallback = soon rest\noverdue.critical-days = 2"))
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("After it: only its own slots", [found[s][1] for s in ("sat-o", "sun-o", "sun-p")],
+          ["O", "O", "D"])
+    check_true("still marked overdue", "overdue" in found["sun-p"][2], found["sun-p"])
+
+
+def test_pacing_settings(task):
+    for setting, message in [("pacing = maybe", "pacing must be on or off"),
+                             ("max.per-day = lots", "max.per-day must be a number of hours"),
+                             ("overdue.critical-days = -1", "overdue.critical-days must be")]:
+        write_template(task, "[settings]\n" + setting + "\n")
+        code, out, err = task.run(NOW, "schedule", "check")
+        check_true("check reports: " + message, code != 0 and message in out, out + err)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -1530,4 +1708,6 @@ if __name__ == "__main__":
                         test_mode_project, test_mode_commands, test_everyday,
                         test_everyday_errors, test_rest_display, test_due_cutoff,
                         test_due_next_week, test_overdue, test_borrow_due, test_chained_weeks,
-                        test_due_change, test_help], fresh=True))
+                        test_due_change, test_pacing_spreads, test_pace_and_overload,
+                        test_critical, test_behind_through_fallback, test_max_per_day,
+                        test_overdue_grace, test_pacing_settings, test_help], fresh=True))

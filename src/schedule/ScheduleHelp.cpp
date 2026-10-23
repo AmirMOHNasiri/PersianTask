@@ -39,7 +39,9 @@ const std::vector<HelpEntry>& helpEntries() {
        "containing a date.  Weeks start on the weekstart setting (Shanbe by default).\n"
        "The number next to each slot can be used in place of its id.  A later week is\n"
        "planned as if the work planned before it were done.  No task is planned after\n"
-       "it is due, unless it is overdue already, which the Pace column then shows.",
+       "it is due, unless it is overdue already.  Tasks with an estimate and a due date\n"
+       "are paced: their work is spread over the time they have, and the Pace column\n"
+       "says whether each is on track, behind, short of time, or overdue.",
        {"task schedule week", "task schedule week next", "task schedule week 1405-08-10"}},
 
       {"review", "[prev | next | week:<date>]",
@@ -181,7 +183,10 @@ std::string help() {
          "\n"
          "Estimates: 'task add Paper project:research estimate:4h' plans 4h times the\n"
          "template's estimate.factor.  An estimate needs a unit, such as 4h or 90min.  In\n"
-         "'task schedule borrow', a plain number means hours.\n"
+         "'task schedule borrow', a plain number means hours.  Track your work with\n"
+         "'task start' and 'task stop': the time tracked is what the schedule counts as\n"
+         "done, and the rest is planned again.  With a due date too, the work is spread\n"
+         "over the weeks until then (pacing).\n"
          "\n"
          "More: 'task schedule help <command>', 'task schedule help template', and the full\n"
          "reference in docs/schedule.md.\n";
@@ -208,7 +213,8 @@ std::string helpTemplate() {
       "The template is a text file, at {1}.\n"
       "It has sections in square brackets, and # starts a comment.\n"
       "\n"
-      "  [settings]          estimate.factor, unestimated.per-day, fallback, borrow\n"
+      "  [settings]          estimate.factor, unestimated.per-day, fallback, borrow,\n"
+      "                      pacing, max.per-day, overdue.critical-days\n"
       "  [categories]        One per line: <name> <floor> <filter>\n"
       "  [shanbe] ... [jome] The slots of each day, one per line:\n"
       "                      <start>-<end> <id> <kind> <category> [options]\n"

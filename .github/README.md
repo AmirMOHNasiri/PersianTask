@@ -177,7 +177,7 @@ task schedule swap sat-ds mon-arch
 
 Changes apply to one week, and `task schedule undo` takes them back. Note that `task undo` does not undo schedule changes, and that the schedule is kept in its own files, so it does not sync with your tasks.
 
-Give tasks an estimate, such as `task add Paper project:research estimate:4h`, and the schedule plans enough slots for it, with a safety factor (1.5 in the example); time tracked with `task start` and `task stop` is taken off. When a task needs more, `task schedule borrow 12 2` takes two more hours from the slots the template lets it borrow, never below a category's weekly floor.
+Give tasks an estimate, such as `task add Paper project:research estimate:4h`, and the schedule plans enough slots for it, with a safety factor (1.5 in the example); time tracked with `task start` and `task stop` is taken off, so track your work. With a due date as well, the work is spread over the weeks until then, a task that falls behind gets more slots, and the schedule warns when the work due by a date no longer fits in the slots before it (see [Pacing](../docs/schedule.md#pacing)). When a task needs more, `task schedule borrow 12 2` takes two more hours from the slots the template lets it borrow, never below a category's weekly floor.
 
 Once a week, `task schedule review` compares planned and tracked hours per category, warns about categories below their weekly floor two weeks running and about a buffer that keeps filling up, and lists the deadlines of this week and the next.
 

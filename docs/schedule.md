@@ -6,6 +6,7 @@ PersianTask can plan your week. You describe a typical week once, as a template 
 - [How a slot gets its task](#how-a-slot-gets-its-task)
 - [Commands](#commands)
 - [Estimates](#estimates)
+- [Pacing](#pacing)
 - [Borrowing time](#borrowing-time)
 - [The weekly review](#the-weekly-review)
 - [Modes](#modes)
@@ -40,12 +41,15 @@ Each slot has a *kind*:
 | `buffer` | Spare time. With no category of its own, it goes straight to the fallback chain. |
 | `rest` | Always free. |
 
-Slots get their tasks in two passes over the week, both in time order:
+Slots get their tasks in passes over the week, each in time order:
 
-1. Every slot takes the most urgent pending task matching its category (or its own `filter:`). The earliest slot gets the most urgent task.
-2. Every slot still empty goes down its fallback chain: the slot's own `fallback:` if it has one, or else the `fallback` setting. Each step is a category, and the slot takes that category's most urgent task. The step `rest` leaves the slot free, and so does reaching the end of the chain.
+1. Work pinned with `assign` or `borrow`.
+2. [Critical](#pacing) tasks, which cannot be finished in time otherwise.
+3. Every slot takes a task matching its own category (or its own `filter:`): first its tasks [behind pace](#pacing), then the most urgent one. The earliest slot gets the most urgent task.
+4. Every slot still empty helps the tasks behind pace that its fallback chain reaches.
+5. Every slot still empty goes down its fallback chain: the slot's own `fallback:` if it has one, or else the `fallback` setting. Each step is a category, and the slot takes that category's most urgent task. The step `rest` leaves the slot free, and so does reaching the end of the chain.
 
-The first pass comes first so that one slot's fallback never takes the task that another slot's own category was meant for.
+A slot's own category comes before its fallback chain, so that one slot's fallback never takes the task that another slot's own category was meant for. Passes 2 and 4 come from [pacing](#pacing), and without it (`pacing = off`), only passes 1, 3 (by urgency alone) and 5 remain, as in earlier versions.
 
 **Due dates.** A task is never planned in a slot that starts after it is due, in either pass, nor lent such a slot by `borrow`. A task that is already overdue, at the time the week is planned, is the exception: it may take any slot, and its row says `overdue` in the `Pace` column. That column appears only when some row needs it; it also says `after due` for a task assigned by hand to a slot after its due time. For a task with an estimate, only the part of a slot before the due time counts towards the estimate.
 
@@ -54,6 +58,41 @@ Only pending tasks are scheduled: not waiting tasks, and not tasks blocked by a 
 The schedule ignores the active Taskwarrior context (`task context`): slots always pull from all your tasks.
 
 Under the week, `Planned:` gives the hours of work planned for each category: the length of every slot that got a task, after this week's changes (so a swapped slot counts with its new length). Fixed slots, events and free slots do not count.
+
+### Pacing
+
+A task with an estimate and a due date is *paced*: its work is spread over the time it has, instead of waiting until the due date comes near. For each one, at the time the week is planned:
+
+- **Remaining work**: its estimate times `estimate.factor`, less the time tracked on it with `task start` and `task stop`, less what earlier weeks plan (for a later week).
+- **Capacity**: the time of the slots it may work in, from now until it is due, this week and the following ones, up to 26 weeks ahead. Its *own* slots are those whose own category (or `filter:`, or the category a [mode](#modes) gives them) matches it; the slots it *can reach* are its own, and those whose fallback chain has a category that matches it, such as `soon` in the example, which matches tasks due within a week. Only the part of a slot before the due time counts.
+- **Laxity**: the capacity it can reach, less its remaining work: how much slack it has. The least laxity goes first.
+- **This week's share**: its remaining work, times this week's part of its capacity. If its own slots can hold all its work, the share is taken over its own slots, so the work is spread evenly; otherwise over all the slots it can reach, and since those grow as the due date nears (through `soon`), so does the share.
+
+A paced task that has not got its share yet this week is *behind pace*. In its own category's slots it comes before the category's other tasks, least laxity first; and empty slots whose fallback chain reaches it help it, before the chain's own order. Once it has its share, it is planned by urgency like any other task, so it can still get ahead when there is time.
+
+A task is **critical** when its laxity is zero or less: even all the slots it can reach until its due date are not enough. A critical task is planned first, in every slot it can reach, even one whose own category would take another task, except that it never takes a protected slot, nor a slot whose category would then fall below its weekly floor. An overdue task is critical for `overdue.critical-days` days after its due date (7 by default), and is then planned by urgency like a task with no due date, so that a forgotten task cannot take the slots forever. It is marked `overdue` either way.
+
+`max.per-day`, if set, limits the time a task gets in a day (a first slot is always allowed, however long), except for critical tasks.
+
+The **Pace** column says how each paced task stands:
+
+| Pace | Meaning |
+|---|---|
+| `on track` | It gets its share this week. |
+| `behind 2h` | This week's plan gives it 2h less than its share, since other work has the slots. |
+| `short 3h` | Even all the slots it can reach until its due date leave 3h undone; a note under the week says so too. |
+| `overdue` | Its due date has passed. |
+| `after due` | It is assigned by hand to a slot after its due time. |
+
+Each task's laxity assumes it could have all the slots it reaches, so two tasks can each look fine and still not fit together. So under today's schedule, the week and the review, a warning says when they do not:
+
+```
+Overloaded before Doshanbe 27 Mehr: 12h of work, 10h of slots.
+```
+
+This is the classic test of earliest-deadline-first scheduling: for each due date, the remaining work of all the tasks due by then must fit in the slots before it that any of them can use, each slot counted once. The first date that fails is shown.
+
+Pacing needs nothing new from you: give tasks an estimate and a due date. Tasks without a due date are planned as before, by urgency. To turn pacing off, set `pacing = off` in the template.
 
 ### Which category hours count for
 
@@ -424,6 +463,9 @@ borrow              = fri-buffer arch wed-floating uptodate research
 | `unestimated.per-day` | How many slots a day a task may fill. The default is 1. |
 | `estimate.factor` | Planned time for a task is its [estimate](#estimates) times this factor. The default is 1. |
 | `borrow` | Slots or categories that [lend time](#borrowing-time) to a task that needs more, in order. |
+| `pacing` | `on` (the default) or `off`: [pacing](#pacing) of tasks with estimates and due dates. |
+| `max.per-day` | The most time one task gets in a day, in hours, such as `3` or `2.5h`, except for critical tasks. No limit by default. |
+| `overdue.critical-days` | For how many days after its due date an overdue task stays critical. The default is 7. |
 
 ### [categories]
 

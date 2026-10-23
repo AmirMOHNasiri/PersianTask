@@ -14,6 +14,7 @@
 #include <Context.h>
 #include <Datetime.h>
 #include <FS.h>
+#include <ScheduleEffort.h>
 #include <ScheduleTemplate.h>
 #include <format.h>
 #include <shared.h>
@@ -35,7 +36,8 @@ const std::vector<std::pair<std::string, Kind>> kinds{{"fixed", Kind::fixed},
                                                       {"rest", Kind::rest}};
 
 const std::vector<std::string> settingNames{"estimate.factor", "unestimated.per-day", "fallback",
-                                            "borrow"};
+                                            "borrow",          "pacing",              "max.per-day",
+                                            "overdue.critical-days"};
 
 std::string lower(const std::string& input) {
   std::string output = input;
@@ -324,6 +326,21 @@ void Template::parseSetting(const std::string& line, int number) {
       problem(number, "unestimated.per-day must be a whole number of at least 1.");
     else
       unestimatedPerDay = static_cast<int>(number_value);
+  } else if (name == "pacing") {
+    if (value != "on" && value != "off")
+      problem(number, "pacing must be on or off.");
+    else
+      pacing = value == "on";
+  } else if (name == "max.per-day") {
+    maxPerDay = parseHours(value);
+    if (maxPerDay <= 0)
+      problem(number, "max.per-day must be a number of hours, such as 3 or 2.5h.");
+  } else if (name == "overdue.critical-days") {
+    if (!isNumber(value, number_value) || number_value < 0 ||
+        number_value != static_cast<int>(number_value))
+      problem(number, "overdue.critical-days must be a whole number of days, such as 7.");
+    else
+      overdueCriticalDays = static_cast<int>(number_value);
   } else if (name == "fallback") {
     fallback = tokenize(value);
     for (auto& step : fallback) step = lower(step);

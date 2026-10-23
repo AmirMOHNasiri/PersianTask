@@ -114,12 +114,24 @@ std::string renderHours(const Template& tmpl, const std::vector<Assignment>& ass
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Hours to the nearest quarter, for pace and overloads.
+static std::string quarterHours(long seconds) {
+  return formatHours((seconds + 450) / 900 * 900);
+}
+
 // What the plan means for the task's deadline, if anything.
 static std::string paceOf(const Assignment& assignment, const Planner& planner) {
   if (!assignment.task) return "";
-  if (planner.overdue(*assignment.task)) return "overdue";
-  if (!planner.eligible(*assignment.task, *assignment.instance)) return "after due";  // Pinned.
-  return "";
+  auto& task = *assignment.task;
+  if (planner.overdue(task)) return "overdue";
+  if (!planner.eligible(task, *assignment.instance)) return "after due";  // Pinned.
+
+  auto pace = planner.pace(task);
+  if (!pace) return "";
+  if (pace->laxity < 0) return "short " + quarterHours(-pace->laxity);
+  auto behind = pace->quota - planner.planned(task);
+  if (behind >= 15 * 60) return "behind " + quarterHours(behind);
+  return "on track";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -231,8 +243,19 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+std::string renderOverloads(const Planner& planner) {
+  std::stringstream out;
+  for (auto& overload : planner.overloads)
+    out << format("Overloaded before {1}: {2} of work, {3} of slots.\n",
+                  describeDay(Datetime(overload.due)), quarterHours(overload.work),
+                  quarterHours(overload.capacity));
+  return out.str();
+}
+
+////////////////////////////////////////////////////////////////////////////////
 std::string renderNotes(const Week& week, const Planner& planner) {
   std::stringstream out;
+  out << renderOverloads(planner);
   for (auto& mode : week.modes) out << "Mode: " << mode << '\n';
   for (auto& note : week.notes) out << "Note: " << note << '\n';
   for (auto& note : planner.notes) out << "Note: " << note << '\n';

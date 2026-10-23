@@ -131,6 +131,9 @@ class Template {
 
   double estimateFactor{1.0};
   int unestimatedPerDay{1};
+  bool pacing{true};            // Plan tasks with due dates to keep pace.
+  long maxPerDay{-1};           // Seconds of one task a day, or -1 for no limit.
+  int overdueCriticalDays{7};   // Days an overdue task stays critical.
   std::vector<std::string> fallback;
   std::vector<std::string> borrow;
 

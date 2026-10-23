@@ -22,6 +22,16 @@ and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 - A task is no longer planned in slots that start after it is due, by its own
   category, the fallback chain or `borrow`. An overdue task can still take any
   slot, and is marked `overdue` in a new `Pace` column.
+- Pacing: a task with an estimate and a due date has its work spread over
+  the weeks until it is due, instead of waiting for its last week. A task
+  that falls behind gets more slots, first in its own category and then in
+  empty slots its fallback chain reaches; one that cannot be finished in time
+  otherwise takes any slot it can reach, except protected ones and those whose
+  category would fall below its floor. The `Pace` column says `on track`,
+  `behind 2h`, `short 3h` or `overdue`, and today's schedule, the week and the
+  review warn when the work due by a date does not fit in the slots before it.
+  Template settings: `pacing` (on by default), `max.per-day` (the most time
+  one task gets in a day) and `overdue.critical-days` (7 by default).
 - `task schedule week next` plans the weeks in between first, as if their
   planned work were done, so that work planned this week is not planned again
   next week.
