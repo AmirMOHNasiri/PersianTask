@@ -16,6 +16,13 @@ on:
 permissions:
   contents: write
 
+# One at a time.  It never touches the pacman repository, so it does not
+# share the publishing group of the Package workflow, where it could push
+# out a waiting release.
+concurrency:
+  group: persiantask-release-notes
+  cancel-in-progress: false
+
 jobs:
   notes:
     runs-on: ubuntu-latest
