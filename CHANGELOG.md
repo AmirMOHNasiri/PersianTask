@@ -8,16 +8,18 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
-## Unreleased
+## 3.5.0-persiantask.4 (2026-10-24)
 
 ### The weekly schedule
 
-- A task's share of a week is now at least even progress towards its due
-  date. Before, a task that other slots could reach only through `soon`, in
-  its last days, got a small share early on, showed `on track`, and was left
-  for the last week; now it shows `behind` when its slots cannot keep up.
-- Time tracked with `task start` and then a quick `task modify start:...`
-  in the same second could be counted as nothing; it is counted right.
+- Time tracked on a task could be counted as zero when `task start` and
+  another change to the task, such as `task modify start:...`, happened in
+  the same second. It is now always counted.
+- A task's share of a week is never below even progress toward its due
+  date. Before, a task that other slots could reach only in its last days
+  (through `soon`) got a small share early on, showed `on track`, and was
+  left for the last week; now it shows `behind` when its slots cannot keep
+  up.
 
 ## 3.5.0-persiantask.3 (2026-10-23)
 
