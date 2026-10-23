@@ -31,7 +31,7 @@ def write_template(task, text):
 
 def slots(output):
     """{slot id: (task id, description, from)} from a schedule table.  The
-    descriptions used in these tests are single words."""
+    descriptions used in these tests are single words, or 'nothing to do'."""
     result = {}
     for line in output.splitlines():
         match = re.search(r"\b\d+ \d\d:\d\d-\d\d:\d\d (\S+)(?: \(moved\))?\s*(.*)$", line)
@@ -40,6 +40,8 @@ def slots(output):
         rest = match.group(2).split()
         if rest and rest[0].isdigit():
             result[match.group(1)] = (rest[0], rest[1], " ".join(rest[2:]))
+        elif rest[:3] == ["nothing", "to", "do"]:
+            result[match.group(1)] = ("", "nothing to do", " ".join(rest[3:]))
         else:
             result[match.group(1)] = ("", "", " ".join(rest))
     return result
@@ -173,7 +175,7 @@ def test_init(task):
     check_true("init never overwrites a template", code != 0 and "already exists" in out, out)
 
     out = task.out("schedule", "check")
-    check_true("The example template has no problems", "no problems" in out and "34 slots" in out, out)
+    check_true("The example template has no problems", "no problems" in out and "45 slots" in out, out)
 
 
 def test_init_blank(task):
@@ -303,7 +305,8 @@ def test_fallback_order(task):
 
     found = slots(task.out(NOW, "schedule", "week"))
     check("A later slot keeps its own category's task", found.get("b-os"), ("1", "OS1", "os"))
-    check("An earlier slot's fallback finds nothing", found.get("a-os"), ("", "", "rest"))
+    check("An earlier slot's fallback finds nothing, which is not a rest slot",
+          found.get("a-os"), ("", "nothing to do", "rest (fallback)"))
 
 
 def test_context_ignored(task):
@@ -799,13 +802,15 @@ os   -   project:os
 
     found = slots(task.out(NOW, "schedule", "week"))
     check("Tracked time reduces what is left", found.get("a", ("", "", ""))[2], "1h (1.5h), 30min left os")
-    check("Only what is left is planned", [found.get(s, ("", ""))[1] for s in "abc"], ["Worked", "", ""])
+    check("Only what is left is planned", [found.get(s, ("", ""))[1] for s in "abc"],
+          ["Worked", "nothing to do", "nothing to do"])
 
     task.out("1", "modify", "estimate:30min")
     found = slots(task.out(NOW, "schedule", "week"))
     check("A task past its estimate says so", found.get("a", ("", "", ""))[2], "30min (45min), over os")
     check("A task past its estimate takes one slot a day",
-          [found.get(s, ("", ""))[1] for s in "abc"], ["Worked", "", ""])
+          [found.get(s, ("", ""))[1] for s in "abc"],
+          ["Worked", "nothing to do", "nothing to do"])
 
 
 def test_estimates_from_now(task):
@@ -827,7 +832,8 @@ os   -   project:os
     task.out("add", "Big", "project:os", "estimate:2h")
     found = slots(task.out(NOW, "schedule", "week"))  # NOW is 12:00.
     check("Past slots show the task but do not use up its estimate",
-          [found.get(s, ("", ""))[1] for s in "abcd"], ["Big", "Big", "Big", ""])
+          [found.get(s, ("", ""))[1] for s in "abcd"],
+          ["Big", "Big", "Big", "nothing to do"])
 
 
 def test_estimate_uda(task):
@@ -1205,7 +1211,7 @@ def test_mode_precedence(task):
     task.out(NOW, "schedule", "skip", "sun-arch")
     found = sources(task.out(NOW, "schedule", "week"))
     check("An assignment wins over a mode", found.get("sat-arch"), "assigned")
-    check("A skip wins over a mode", found.get("sun-arch"), "rest, skipped")
+    check("A skip wins over a mode", found.get("sun-arch"), "rest (fallback), skipped")
 
     task.out(NOW, "schedule", "mode", "start", "project", "1405-07-26")
     found = sources(task.out(NOW, "schedule", "week"))
@@ -1258,6 +1264,137 @@ def test_mode_commands(task):
         check_true("mode {} fails: {}".format(" ".join(args), text), code != 0 and text in err, err)
 
 
+EVERYDAY = """
+[settings]
+fallback = rest
+borrow = morning
+
+[categories]
+x    -   project:x
+y    -   project:y
+
+[everyday]
+07:00-07:30  morning  study  x      except:jome
+12:00-13:00  lunch    rest   -      except:jome
+18:00-19:00  dinner   rest   -
+
+[shanbe]
+08:00-09:00  a               study  x
+
+[yekshanbe]
+10:30-13:30  sun-long-lunch  rest   -
+
+[doshanbe]
+18:00-20:30  commute         fixed  -
+
+[mode m]
+give = morning -> y
+"""
+
+
+def test_everyday(task):
+    """[everyday] slots apply to all days, except the excluded ones, and a
+    day's own overlapping slot replaces them on that day."""
+    write_template(task, EVERYDAY)
+    out = task.out(NOW, "schedule", "check")
+    # morning 6 days, lunch 6 days but not Yekshanbe, dinner 7 but not Doshanbe.
+    check_true("The template is valid", "no problems" in out and "20 slots" in out, out)
+
+    found = places(task.out(NOW, "schedule", "week"))
+    check("Each day gets a copy, named after the day",
+          (found.get("sat-lunch"), found.get("thu-dinner")),
+          (("Shanbe", "12:00-13:00", False), ("Panjshanbe", "18:00-19:00", False)))
+    check_true("except:jome leaves Jome out",
+               "fri-lunch" not in found and "fri-morning" not in found and "fri-dinner" in found,
+               sorted(found))
+    check_true("A day's own slot replaces the [everyday] slot it overlaps",
+               "sun-lunch" not in found and "sun-long-lunch" in found and
+               "mon-dinner" not in found and "commute" in found, sorted(found))
+    check_true("The [everyday] id itself is not a slot of the week",
+               "lunch" not in found and "dinner" not in found, sorted(found))
+
+    out = task.out(NOW, "schedule", "check", "--expand")
+    check_true("check --expand shows where each slot comes from",
+               re.search(r"12:00-13:00  sat-lunch\s+rest\s+-\s+\[everyday\] lunch", out), out)
+    check_true("check --expand shows replacements",
+               re.search(r"sun-long-lunch .*replaces \[everyday\] lunch", out) and
+               re.search(r"commute .*replaces \[everyday\] dinner", out), out)
+    check_true("check --expand shows excluded days",
+               "[everyday] lunch does not apply: except:Jome" in out, out)
+    check("check expand works without dashes too", task.out(NOW, "schedule", "check", "expand"), out)
+
+    # One day's copy can be changed alone.
+    task.out(NOW, "schedule", "move", "sat-lunch", "shanbe", "14:00")
+    found = places(task.out(NOW, "schedule", "week"))
+    check("move changes one day's copy", (found.get("sat-lunch"), found.get("sun-dinner")[1]),
+          (("Shanbe", "14:00-15:00", True), "18:00-19:00"))
+    code, out, err = task.run(NOW, "schedule", "skip", "morning")
+    check_true("The [everyday] id names no single slot, and says which to use",
+               code != 0 and "'morning' is an [everyday] slot" in err and "sat-morning" in err, err)
+
+    # Borrowing takes the copies in time order, by the [everyday] id.
+    task.out("add", "B", "project:z")
+    out = task.out(NOW, "schedule", "borrow", "1", "1")
+    check_true("borrow takes [everyday] copies in time order",
+               "sun-morning (Yekshanbe" in out and "mon-morning (Doshanbe" in out and
+               "tue-morning" not in out, out)
+    task.out(NOW, "schedule", "undo")
+
+    # Modes select all the copies by the [everyday] id.
+    task.out("add", "Y", "project:y")
+    task.out(NOW, "schedule", "mode", "start", "m")
+    found = sources(task.out(NOW, "schedule", "week", "next"))
+    check("A mode's give rule selects every copy",
+          (found.get("sat-morning"), found.get("thu-morning")), ("y (m)", "y (m)"))
+
+
+def test_everyday_errors(task):
+    for text, message in [
+            ("[everyday]\n07:00-08:00 a rest -\n08:00-09:00 b rest -\n07:30-08:30 c rest -\n",
+             "Slot 'c' overlaps slot 'a'"),
+            ("[everyday]\n07:00-08:00 a rest - except:jome\n[shanbe]\n07:00-08:00 b rest - except:jome\n",
+             "except: only applies to [everyday] slots"),
+            ("[everyday]\n07:00-08:00 a rest - except:someday\n", "'someday' is not a day name"),
+            ("[everyday]\n07:00-08:00 lunch rest -\n[shanbe]\n12:00-13:00 sat-lunch rest -\n",
+             "makes 'sat-lunch' on Shanbe, but line 4 already defines"),
+            ("[everyday]\n07:00-08:00 a rest -\n[shanbe]\n09:00-10:00 a rest -\n",
+             "Slot 'a' is already defined on line 2"),
+            ("[shanbe]\n07:00-08:00 a rest -\n07:30-08:30 b rest -\n",
+             "Slot 'b' overlaps slot 'a'")]:
+        write_template(task, text)
+        code, out, err = task.run(NOW, "schedule", "check")
+        check_true("check reports: " + message, code != 0 and message in out + err, out + err)
+
+    # Two [everyday] slots on different days do not overlap.
+    write_template(task, "[everyday]\n07:00-08:00 a rest - except:jome,shanbe,yekshanbe,doshanbe,"
+                         "seshanbe,chaharshanbe\n07:30-08:30 b rest - except:panjshanbe\n")
+    out = task.out(NOW, "schedule", "check")
+    check_true("[everyday] slots on different days may share a time", "no problems" in out, out)
+
+
+def test_rest_display(task):
+    """A rest slot shows 'rest'; a slot that found nothing to do, and whose
+    fallback chain ends in rest, says so, dimmed like empty optional slots."""
+    write_template(task, "[settings]\nfallback = rest\n[categories]\nx - project:x\n"
+                         "[shanbe]\n14:00-15:00 empty study x\n15:00-16:00 lunch rest -\n"
+                         "16:00-17:00 extra study x optional\n")
+    out = task.out(NOW, "schedule", "week")
+    found = slots(out)
+    check("A rest slot", found.get("lunch"), ("", "", "rest"))
+    check("An empty study slot", found.get("empty"), ("", "nothing to do", "rest (fallback)"))
+    check("An empty optional slot", found.get("extra"), ("", "", "rest (fallback)"))
+
+    # The slots are later than NOW, so neither past nor current.
+    colored = task.out(NOW, "rc._forcecolor:on", "rc.color.schedule.optional:red", "schedule",
+                       "week")
+    rows = {re.search(r"(empty|lunch|extra)", line).group(1): line
+            for line in colored.splitlines() if re.search(r"(empty|lunch|extra)", line)}
+    red = "38;5;1"  # Red, combined with the row's background.
+    check_true("The empty study slot is dimmed like an optional one",
+               red in rows.get("empty", "") and red in rows.get("extra", ""), rows)
+    check_true("The rest slot is not", red not in rows.get("lunch", ""), rows)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -1271,5 +1408,5 @@ if __name__ == "__main__":
                         test_write_guard, test_borrow_overshoot, test_small_estimates,
                         test_review, test_review_tracked, test_attribution, test_review_buffer,
                         test_review_deadlines, test_mode_exam, test_mode_precedence,
-                        test_mode_project, test_mode_commands,
-                        test_help], fresh=True))
+                        test_mode_project, test_mode_commands, test_everyday,
+                        test_everyday_errors, test_rest_display, test_help], fresh=True))

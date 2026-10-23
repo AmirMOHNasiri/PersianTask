@@ -121,10 +121,18 @@ Describe your typical week once, as a template of time slots: classes, study blo
    14:00-16:00   sat-os-hw      study   os         filter:"project:os +homework"
    ```
 
+   Breaks that every day has, such as lunch, go once in `[everyday]`; a day's own slot at that time replaces them on that day:
+
+   ```
+   [everyday]
+   12:30-13:30   lunch          rest    -          except:jome
+   ```
+
 4. Check it, and look at your week:
 
    ```
    task schedule check
+   task schedule check --expand   # Each day's slots, with the [everyday] ones
    task schedule week
    ```
 
@@ -136,7 +144,8 @@ Day              #  Time         Slot           ID  Task            Estimate  Fr
 Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project              term (fallback)
                  2  07:30-10:30  sat-research    2  Paper draft     2h (3h)   research
                  3  11:00-12:30  sat-ds          3  Tree exercises            ds
-                 4  14:00-16:00  sat-os-hw       1  OS homework 3             os
+                 4  12:30-13:30  sat-lunch                                    rest
+                 5  14:00-16:00  sat-os-hw       1  OS homework 3             os
 ```
 
 ### Commands
@@ -146,7 +155,7 @@ Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project              te
 | `task schedule today` (or plain `task`) | Today's slots, their tasks, and the important tasks |
 | `task schedule week [next \| prev \| <date>]` | A week of slots and tasks |
 | `task schedule init [example \| blank]` | Creates the template |
-| `task schedule check` | Finds mistakes in the template, with line numbers |
+| `task schedule check [--expand]` | Finds mistakes in the template, with line numbers; `--expand` lists each day's slots |
 | `task schedule swap <slot> <slot>` | Swaps two slots' times, this week |
 | `task schedule move <slot> <day> <HH:MM>` | Moves a slot, this week |
 | `task schedule skip <slot>` | Skips a slot's own work, this week |

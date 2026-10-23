@@ -130,7 +130,8 @@ Week::Week(const Template& tmpl, const Datetime& day, const State* state)
 
           bool matches = rule.selector.substr(0, 5) == "kind:"
                              ? kindName(slot.kind) == rule.selector.substr(5)
-                             : slot.category == rule.selector || slot.id == rule.selector;
+                             : slot.category == rule.selector || slot.id == rule.selector ||
+                                   slot.everyday == rule.selector;
           if (matches && active.activeAt(instance.day.toEpoch() + instance.start * 60))
             selected.push_back(&instance);
         }

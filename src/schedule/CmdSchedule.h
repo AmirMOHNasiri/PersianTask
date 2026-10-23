@@ -26,7 +26,7 @@ class CmdSchedule : public Command {
   int today(std::string&);
   int week(const std::vector<std::string>&, std::string&);
   int init(const std::vector<std::string>&, std::string&);
-  int check(std::string&);
+  int check(const std::vector<std::string>&, std::string&);
   int help(const std::vector<std::string>&, std::string&);
 
   // Changes, in CmdScheduleEdit.cpp.

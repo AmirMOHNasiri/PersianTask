@@ -49,6 +49,20 @@ struct Slot {
   bool optional{false};
   bool isProtected{false};
   int line{0};
+
+  // An [everyday] slot, as written, has weekday -1, and the days it skips
+  // (except:jome) in except.  Each day it applies to gets a copy, among the
+  // template's slots, with the day's prefix (sat-lunch) and its id here.
+  std::vector<int> except;
+  std::string everyday;
+};
+
+// A day on which an [everyday] slot does not apply, since a slot of the day's
+// own overlaps it, and replaces it.
+struct Replacement {
+  std::string everyday;  // The [everyday] slot's id.
+  int weekday{0};
+  std::vector<std::string> by;  // The day's slots that overlap it.
 };
 
 // A [mode <name>] section.  Modes are parsed and checked here, and applied
@@ -111,6 +125,7 @@ class Template {
     return "";
   }
   const Slot* slot(const std::string&) const;
+  const Slot* everydaySlot(const std::string&) const;
   std::string filterFor(const Slot&) const;
   const std::vector<std::string>& fallbackFor(const Slot&) const;
 
@@ -120,7 +135,9 @@ class Template {
   std::vector<std::string> borrow;
 
   std::vector<Category> categories;
-  std::vector<Slot> slots;
+  std::vector<Slot> slots;  // Including each day's copies of [everyday] slots.
+  std::vector<Slot> everyday;  // [everyday] slots, as written.
+  std::vector<Replacement> replaced;
   std::vector<Mode> modes;
   std::vector<Problem> problems;
 
@@ -129,6 +146,7 @@ class Template {
   void parseCategory(const std::string&, int);
   void parseSlot(const std::string&, int, int);
   void parseModeLine(Mode&, const std::string&, int);
+  void expandEveryday();
   void validate();
   void problem(int, const std::string&);
 
@@ -144,6 +162,9 @@ std::string formatTime(int);
 
 // Day of the week (0 = Sunday) of a Finglish or English day name, or -1.
 int parseDayName(const std::string&);
+
+// The prefix of a day's copy of an [everyday] slot: sat, sun, ... fri.
+std::string dayPrefix(int weekday);
 
 }  // namespace schedule
 

@@ -145,8 +145,9 @@ int CmdSchedule::execute(std::string& output) {
     return week(args, output);
   }
   if (name == "check") {
-    if (!args.empty()) throw usage();
-    return check(output);
+    if (args.size() > 1 || (args.size() == 1 && args[0] != "--expand" && args[0] != "expand"))
+      throw usage();
+    return check(args, output);
   }
   if (name == "swap") return swap(args, output);
   if (name == "move") return move(args, output);
@@ -311,7 +312,48 @@ int CmdSchedule::init(const std::vector<std::string>& args, std::string& output)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-int CmdSchedule::check(std::string& output) {
+// The slots of each day, after [everyday] slots are added, for 'check
+// --expand': where each one comes from, and which [everyday] slots a day's
+// own slot replaces.
+static std::string expandedSlots(const Template& tmpl) {
+  std::stringstream out;
+  for (int i = 0; i < 7; ++i) {
+    int day = (Datetime::weekstart + i) % 7;
+    out << '\n' << Datetime::dayName(day) << '\n';
+
+    std::vector<const Slot*> slots;
+    for (auto& slot : tmpl.slots)
+      if (slot.weekday == day) slots.push_back(&slot);
+    std::stable_sort(slots.begin(), slots.end(),
+                     [](auto a, auto b) { return a->start < b->start; });
+
+    for (auto slot : slots) {
+      std::string origin;
+      if (!slot->everyday.empty()) origin = "[everyday] " + slot->everyday;
+      for (auto& replacement : tmpl.replaced)
+        if (replacement.weekday == day &&
+            std::find(replacement.by.begin(), replacement.by.end(), slot->id) !=
+                replacement.by.end())
+          origin += (origin.empty() ? "" : "; ") + std::string("replaces [everyday] ") +
+                    replacement.everyday;
+      auto line = format("  {1}-{2}  {3} {4} {5} {6}", formatTime(slot->start),
+                         formatTime(slot->end), leftJustify(slot->id, 16),
+                         leftJustify(kindName(slot->kind), 9),
+                         leftJustify(slot->category.empty() ? "-" : slot->category, 10), origin);
+      out << line.substr(0, line.find_last_not_of(' ') + 1) << '\n';
+    }
+    if (slots.empty()) out << "  (no slots)\n";
+
+    for (auto& base : tmpl.everyday)
+      if (std::find(base.except.begin(), base.except.end(), day) != base.except.end())
+        out << format("  [everyday] {1} does not apply: except:{2}\n", base.id,
+                      Datetime::dayName(day));
+  }
+  return out.str();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+int CmdSchedule::check(const std::vector<std::string>& args, std::string& output) {
   Template tmpl;
   if (!tmpl.load()) {
     output = noTemplateHint;
@@ -332,8 +374,10 @@ int CmdSchedule::check(std::string& output) {
     for (auto& category : tmpl.categories)
       if (!category.filter.empty())
         tryFilter(category.filter, category.line, "category '" + category.name + "'");
-    for (auto& slot : tmpl.slots)
-      if (!slot.filter.empty()) tryFilter(slot.filter, slot.line, "slot '" + slot.id + "'");
+    for (auto list : {&tmpl.slots, &tmpl.everyday})
+      for (auto& slot : *list)
+        if (!slot.filter.empty() && slot.everyday.empty())
+          tryFilter(slot.filter, slot.line, "slot '" + slot.id + "'");
   }
 
   auto udaProblem = estimateUdaProblem();
@@ -363,6 +407,8 @@ int CmdSchedule::check(std::string& output) {
   out << format("{1}: no problems.  {2} slots on {3} days, {4} categories, {5} modes.\n",
                 Template::path(), tmpl.slots.size(), days.size(), tmpl.categories.size(),
                 tmpl.modes.size());
+
+  if (!args.empty()) out << expandedSlots(tmpl);
 
   for (auto& warning : estimateWarnings()) out << "Note: " << warning << '\n';
 

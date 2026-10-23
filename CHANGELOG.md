@@ -8,6 +8,21 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
+## Unreleased
+
+### The weekly schedule
+
+- An `[everyday]` section in the template, for slots that every day has, such
+  as lunch. Each day gets a copy, named after the day (`sat-lunch`), which
+  `move`, `swap` and the other commands change one day at a time. A day's own
+  slot at that time replaces it on that day, and `except:jome` leaves out
+  days. The example template uses it for lunch and dinner.
+- `task schedule check --expand` lists each day's slots as the schedule uses
+  them, with the `[everyday]` copies and what replaces them.
+- A slot that finds nothing to do, because its fallback chain ends in `rest`,
+  now shows `nothing to do` and `rest (fallback)`, dimmed, so that it is not
+  mistaken for a rest slot, such as lunch, which still shows `rest`.
+
 ## 3.5.0-persiantask.1 (2026-10-20)
 
 The first release: Taskwarrior 3.5.0 with the Jalali calendar, and a weekly

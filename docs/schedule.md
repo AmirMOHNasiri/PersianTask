@@ -89,7 +89,14 @@ task schedule
 task schedule today
 ```
 
-Today's slots in time order, with the task each one gets. The current slot is highlighted, and past slots are dimmed. The `From` column says where the task came from: the slot's category, or a fallback category, marked `(fallback)`.
+Today's slots in time order, with the task each one gets. The current slot is highlighted, and past slots are dimmed. The `From` column says where the task came from: the slot's category, or a fallback category, marked `(fallback)`. A slot without a task says why:
+
+| From | Meaning |
+|---|---|
+| `rest` | A rest slot: a break by design, such as lunch. |
+| `rest (fallback)` | A slot that found nothing to do: its fallback chain ended in `rest`. Its task column says `nothing to do`, and it is dimmed, like an optional slot. |
+| `fixed` | A fixed slot, such as a class, which never takes tasks. |
+| `optional` | An optional slot that found nothing to do. |
 
 Below the slots comes the report named by `schedule.report`, by default `important`: tasks due today or overdue, and tasks with high priority (`priority:H`), however far away their due date is.
 
@@ -197,6 +204,7 @@ Creates the template file, either from the example of a university student's wee
 
 ```
 task schedule check
+task schedule check --expand
 ```
 
 Reads the template and reports every mistake with its line number, for example:
@@ -207,6 +215,23 @@ Reads the template and reports every mistake with its line number, for example:
 ```
 
 It checks the syntax, unknown names, overlapping slots, times outside the day, and filters that Taskwarrior cannot read. While the template has mistakes, the other commands do not show it, and point to `task schedule check` instead.
+
+With `--expand` (or `expand`), a valid template is also listed day by day, as the schedule uses it, with each day's copies of the [`[everyday]`](#everyday) slots, the slots that replace them, and the days they skip:
+
+```
+Doshanbe
+  07:30-10:30  mon-algo-class   fixed     algo
+  11:00-16:00  mon-research     study     research   replaces [everyday] lunch
+  18:00-19:30  mon-os-slides    study     os
+  19:30-20:30  mon-dinner       rest      -          [everyday] dinner
+  20:30-22:00  mon-arch         study     arch
+...
+Jome
+  08:00-10:00  fri-arch         study     arch
+  10:30-12:00  fri-buffer       buffer    -
+  12:00-24:00  fri-rest         rest      -          replaces [everyday] dinner
+  [everyday] lunch does not apply: except:Jome
+```
 
 ### task schedule help
 
@@ -429,7 +454,7 @@ One category per line: a name, a floor, and a filter.
 
 A section for each day, named in Finglish, `[shanbe]`, `[yekshanbe]`, `[doshanbe]`, `[seshanbe]`, `[chaharshanbe]`, `[panjshanbe]`, `[jome]`, or in English, `[saturday]` to `[friday]`, whatever `dayname.style` says. Each line is one slot, made of:
 
-1. **Time**: `HH:MM-HH:MM`. `wake` and `sleep` stand for the `schedule.wake` and `schedule.sleep` settings, as in `12:00-sleep`. Slots must fit between them, and must not overlap on the same day.
+1. **Time**: `HH:MM-HH:MM`. `wake` and `sleep` stand for the `schedule.wake` and `schedule.sleep` settings, as in `12:00-sleep`. Slots must fit between them, and must not overlap on the same day, except that a day's slot replaces an [`[everyday]`](#everyday) slot it overlaps.
 2. **Id**: a unique name, such as `sat-research`, used to refer to the slot. It uses letters, digits, `-` and `_`, and is not only digits.
 3. **Kind**: `fixed`, `study`, `floating`, `buffer` or `rest` (see [above](#how-a-slot-gets-its-task)).
 4. **Category**: a category name, or `-` for none. Study and floating slots need a category or a `filter:` option.
@@ -443,6 +468,33 @@ A section for each day, named in Finglish, `[shanbe]`, `[yekshanbe]`, `[doshanbe
 | `protected` | Never lends its time to another task, and never moves. |
 
 Fixed and rest slots never take tasks, so they cannot have `filter:` or `fallback:`.
+
+### [everyday]
+
+```
+[everyday]
+# time         id        kind   category  options
+12:30-13:30    lunch     rest   -         except:jome
+19:30-20:30    dinner    rest   -
+```
+
+Slots that every day has, such as meals, written once. They are written like the slots of a day, and can be of any kind, with any options, and one more: `except:<days>` leaves out some days, such as `except:jome` or `except:panjshanbe,jome` (Finglish or English day names).
+
+Each day gets its own copy of every `[everyday]` slot, named after the day: `lunch` becomes `sat-lunch` on Shanbe, `sun-lunch` on Yekshanbe, then `mon-`, `tue-`, `wed-`, `thu-` and `fri-`. The copies are ordinary slots: `task schedule week` shows them, and `move`, `swap`, `skip`, `assign` and `reset` change one day's copy, as in `task schedule move sat-lunch shanbe 13:00`. Where a whole set of copies is meant, the `[everyday]` id stands for all of them: in the `borrow` setting, and in a mode's `give` rule.
+
+**A day's own slot replaces an `[everyday]` slot that it overlaps, on that day.** This is not an overlap mistake: it is how one day differs from the others. For example, with the lunch above:
+
+```
+[yekshanbe]
+10:30-13:30    sun-long-lunch   rest    -     # a longer lunch, instead of 12:30-13:30
+
+[doshanbe]
+18:00-20:30    mon-commute      fixed   -     # no dinner at home on Doshanbe
+```
+
+The whole `[everyday]` slot gives way, even if the overlap is only partial: there is no `sun-lunch` on Yekshanbe, and no `mon-dinner` on Doshanbe. `task schedule check --expand` shows the result for every day. Two `[everyday]` slots must not overlap each other on a day they share, and a copy's name must not be taken already: an `[everyday]` slot `lunch` and a day slot `sat-lunch` cannot both exist.
+
+Templates without an `[everyday]` section work as before.
 
 ### [mode name]
 
@@ -492,7 +544,7 @@ These go in `.taskrc`, and can be set with `task config`:
 | `color.schedule.header` | `bold` | Color of the day headers. |
 | `color.schedule.now` | `bold green` | Color of the current slot. |
 | `color.schedule.past` | `gray12` | Color of past slots. |
-| `color.schedule.optional` | `gray12` | Color of optional slots with no task. |
+| `color.schedule.optional` | `gray12` | Color of optional slots with no task, and of slots with nothing to do (`rest (fallback)`). |
 | `weekstart` | `saturday` | The first day of the week. |
 
 The template is a plain file: it is not part of the Taskwarrior database, so `task sync` does not copy it to your other devices. Copy it yourself, or keep it in a dotfiles repository.
@@ -525,14 +577,16 @@ Day              #  Time         Slot           ID  Task            Estimate  Fr
 Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project              term (fallback)
                  2  07:30-10:30  sat-research    2  Paper draft     2h (3h)   research
                  3  11:00-12:30  sat-ds          3  Tree exercises            ds
-                 4  14:00-16:00  sat-os-hw       1  OS homework 3             os
-                 5  21:00-21:45  sat-uptodate                                 rest
+                 4  12:30-13:30  sat-lunch                                    rest
+                 5  14:00-16:00  sat-os-hw       1  OS homework 3             os
+                 6  19:30-20:30  sat-dinner                                   rest
+                 7  21:00-21:45  sat-uptodate                                 rest (fallback)
 ```
 
 - `sat-research` takes the paper draft. Its estimate of 2h becomes 3h of planned time (`estimate.factor = 1.5`), which this 3-hour slot covers, so the other research slots of the week are free for other research tasks.
 
 - `sat-research`, `sat-ds` and `sat-os-hw` each take their own category's task. `sat-os-hw` only takes OS tasks tagged `+homework`, because of its `filter:` option.
 - `sat-review` has no review task to do, so it goes down the fallback chain, `soon term ds arch rest`. The OS homework is due soon, but it already has its slot today, so the next step, `term`, gives the term project.
-- `sat-uptodate` has no up-to-date task either, and its fallback chain has nothing left for today (the OS homework, the term project and the tree exercises already have their slots, and there is no arch task), so it reaches `rest` and stays free. Being optional, it is dimmed, and does not count as planned time.
+- `sat-uptodate` has no up-to-date task either, and its fallback chain has nothing left for today (the OS homework, the term project and the tree exercises already have their slots, and there is no arch task), so it reaches `rest` and stays free: `rest (fallback)`, unlike `sat-lunch` and `sat-dinner`, which are rest slots by design, from the template's `[everyday]` section. Being optional, it is dimmed, and does not count as planned time.
 
 On Yekshanbe, the classes (`sun-db-class`, `sun-net-class`, `sun-os-class`) are fixed: they appear in the schedule, but never get a task.

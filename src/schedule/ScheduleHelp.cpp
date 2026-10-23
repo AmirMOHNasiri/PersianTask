@@ -56,12 +56,13 @@ const std::vector<HelpEntry>& helpEntries() {
        "existing template is never overwritten.",
        {"task schedule init", "task schedule init blank"}},
 
-      {"check", "",
+      {"check", "[--expand]",
        "Finds mistakes in the template",
        "Reads the template and reports every mistake with its line number, such as an\n"
        "unknown category, overlapping slots, or a filter that does not work.  Run it\n"
-       "after editing the template.",
-       {"task schedule check"}},
+       "after editing the template.  With --expand, also lists each day's slots as the\n"
+       "schedule uses them: with the copies of [everyday] slots, and what replaces them.",
+       {"task schedule check", "task schedule check --expand"}},
 
       {"swap", "<slot> <slot> [next | prev | week:<date>]",
        "Swaps the times of two slots, for one week",
@@ -209,6 +210,10 @@ std::string helpTemplate() {
       "  [categories]        One per line: <name> <floor> <filter>\n"
       "  [shanbe] ... [jome] The slots of each day, one per line:\n"
       "                      <start>-<end> <id> <kind> <category> [options]\n"
+      "  [everyday]          Slots of every day, such as lunch, written the same way.\n"
+      "                      Each day gets a copy, named sat-lunch, sun-lunch, and so\n"
+      "                      on.  A day's own slot that overlaps one replaces it on\n"
+      "                      that day.  except:jome leaves out days.\n"
       "  [mode <name>]       A temporary change to the week, such as exams\n"
       "\n"
       "Kinds: fixed (a class, never moved or given tasks), study, floating, buffer,\n"

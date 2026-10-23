@@ -81,6 +81,12 @@ struct Change {
 const Instance& slotArg(const Week& week, const std::string& name) {
   auto instance = week.find(name);
   if (!instance) {
+    // An [everyday] slot is changed one day at a time.
+    for (auto& other : week.instances)
+      if (!other.event && other.slot->everyday == name)
+        throw format("'{1}' is an [everyday] slot, with a copy on each day: name one of them, "
+                     "such as '{2}'.",
+                     name, other.id);
     throw format("There is no slot '{1}' in the week of {2}.  'task schedule week' lists them.",
                  name, describeDay(week.start));
   }
@@ -372,7 +378,9 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
       if (auto instance = week.find(slot->id)) candidates.push_back(instance);
     } else
       for (auto& instance : week.instances)
-        if (!instance.event && instance.slot->category == name) candidates.push_back(&instance);
+        if (!instance.event &&
+            (instance.slot->category == name || instance.slot->everyday == name))
+          candidates.push_back(&instance);
   }
 
   // The slots that may lend, in borrow order, each once.

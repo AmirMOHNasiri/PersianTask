@@ -146,7 +146,13 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
         from = "fixed";
         break;
       case Source::rest:
-        from = "rest";
+        // A rest slot is a break by design; a slot whose fallback chain ended
+        // in rest found nothing to do.
+        if (slot.kind != Kind::rest) {
+          description = slot.optional ? "" : "nothing to do";
+          from = "rest (fallback)";
+        } else
+          from = "rest";
         break;
       case Source::pinned:
         from = "assigned";
@@ -187,7 +193,8 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
       color = configColor("color.schedule.now");
     else if (past)
       color = configColor("color.schedule.past");
-    else if (slot.optional && !assignment.task)
+    else if (!assignment.task && (slot.optional || (assignment.source == Source::rest &&
+                                                     slot.kind != Kind::rest)))
       color = configColor("color.schedule.optional");
 
     auto row = table.addRow();

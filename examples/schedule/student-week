@@ -35,6 +35,15 @@ term        -       +term
 # Slots: time  id  kind  category  [options]
 #   kind:    fixed (a class), study, floating, buffer, or rest
 #   options: filter:"..."  fallback:"..."  optional  protected
+#            except:<days>, in [everyday] only
+
+# Slots of every day, such as meals.  Each day gets a copy, named after the
+# day: sat-lunch, sun-lunch, and so on.  A day's own slot that overlaps one
+# replaces it on that day: Doshanbe's long research block takes the place of
+# lunch, and Jome's afternoon off that of dinner.
+[everyday]
+12:30-13:30   lunch            rest       -          except:jome
+19:30-20:30   dinner           rest       -
 
 [shanbe]
 07:00-07:30   sat-review       study      review

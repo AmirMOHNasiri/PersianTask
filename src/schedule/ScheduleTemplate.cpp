@@ -12,6 +12,7 @@
 // cmake.h include header must come first
 
 #include <Context.h>
+#include <Datetime.h>
 #include <FS.h>
 #include <ScheduleTemplate.h>
 #include <format.h>
@@ -201,6 +202,12 @@ int parseDayName(const std::string& input) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+std::string dayPrefix(int weekday) {
+  static const char* prefixes[] = {"sun", "mon", "tue", "wed", "thu", "fri", "sat"};
+  return weekday >= 0 && weekday < 7 ? prefixes[weekday] : "";
+}
+
+////////////////////////////////////////////////////////////////////////////////
 std::string Template::path() {
   auto configured = Context::getContext().config.get("schedule.template");
   if (configured.empty()) return (std::string)Context::getContext().data_dir + "/schedule";
@@ -229,7 +236,7 @@ bool Template::load() {
 void Template::parse(const std::string& contents) {
   std::string section;
   Mode* mode = nullptr;
-  int weekday = -1;
+  int weekday = -1;  // Of a day section.
 
   std::istringstream lines(contents);
   std::string raw;
@@ -265,14 +272,15 @@ void Template::parse(const std::string& contents) {
         modes.push_back(defined);
         mode = &modes.back();
         section = "mode";
-      } else if (section != "settings" && section != "categories" && weekday == -1) {
+      } else if (section != "settings" && section != "categories" && section != "everyday" &&
+                 weekday == -1) {
         problem(number,
                 format("Unknown section '[{1}]'.  Sections are [settings], [categories], day "
-                       "names such as [shanbe], and [mode <name>].{2}",
+                       "names such as [shanbe], [everyday], and [mode <name>].{2}",
                        section,
-                       suggest(section, {"settings", "categories", "shanbe", "yekshanbe",
-                                         "doshanbe", "seshanbe", "chaharshanbe", "panjshanbe",
-                                         "jome"})));
+                       suggest(section, {"settings", "categories", "everyday", "shanbe",
+                                         "yekshanbe", "doshanbe", "seshanbe", "chaharshanbe",
+                                         "panjshanbe", "jome"})));
         section = "";
       }
       continue;
@@ -284,7 +292,7 @@ void Template::parse(const std::string& contents) {
       parseCategory(line, number);
     else if (section == "mode")
       parseModeLine(*mode, line, number);
-    else if (weekday != -1)
+    else if (weekday != -1 || section == "everyday")
       parseSlot(line, number, weekday);
     else if (section.empty())
       problem(number, "This line is not in a section, such as [settings] or [shanbe].");
@@ -409,10 +417,11 @@ void Template::parseSlot(const std::string& line, int number, int weekday) {
     problem(number, format("'{1}' is not a valid slot id.  Use letters, digits, '-' and '_', "
                            "such as 'sat-os'.",
                            slot.id));
-  for (auto& existing : slots)
-    if (existing.id == slot.id)
-      problem(number, format("Slot '{1}' is already defined on line {2}.", slot.id,
-                             existing.line));
+  for (auto list : {&slots, &everyday})
+    for (auto& existing : *list)
+      if (existing.id == slot.id)
+        problem(number, format("Slot '{1}' is already defined on line {2}.", slot.id,
+                               existing.line));
 
   auto kind = std::find_if(kinds.begin(), kinds.end(),
                            [&](auto& k) { return k.first == lower(tokens[2]); });
@@ -439,11 +448,27 @@ void Template::parseSlot(const std::string& line, int number, int weekday) {
       slot.fallback = tokenize(option.substr(9));
       for (auto& name : slot.fallback) name = lower(name);
       slot.hasFallback = true;
+    } else if (option.substr(0, 7) == "except:") {
+      // except:jome or except:panjshanbe,jome
+      if (weekday != -1)
+        problem(number, "except: only applies to [everyday] slots.");
+      std::istringstream names(option.substr(7));
+      std::string name;
+      while (std::getline(names, name, ',')) {
+        auto day = parseDayName(name);
+        if (day == -1)
+          problem(number, format("In '{1}', '{2}' is not a day name, such as jome or friday.",
+                                 option, name));
+        else
+          slot.except.push_back(day);
+      }
     } else
       problem(number, format("Unknown slot option '{1}'.  Options are filter:\"...\", "
-                             "fallback:\"...\", optional and protected.{2}",
+                             "fallback:\"...\", optional, protected, and except:<days> in "
+                             "[everyday].{2}",
                              option,
-                             suggest(option, {"optional", "protected", "filter:", "fallback:"})));
+                             suggest(option, {"optional", "protected", "filter:", "fallback:",
+                                              "except:"})));
   }
 
   if ((slot.kind == Kind::fixed || slot.kind == Kind::rest) &&
@@ -456,7 +481,61 @@ void Template::parseSlot(const std::string& line, int number, int weekday) {
       slot.filter.empty())
     problem(number, format("A {1} slot needs a category or a filter.", kindName(slot.kind)));
 
-  slots.push_back(slot);
+  if (weekday == -1)
+    everyday.push_back(slot);
+  else
+    slots.push_back(slot);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Gives each day a copy of every [everyday] slot, except on the days it
+// skips, and on the days where a slot of the day's own overlaps it, which
+// replaces it there.  Copies are named after their day: lunch on Shanbe is
+// sat-lunch.
+void Template::expandEveryday() {
+  for (size_t i = 0; i < everyday.size(); ++i) {
+    auto& base = everyday[i];
+
+    // Two [everyday] slots must not overlap on a day they share.
+    for (size_t j = 0; j < i; ++j) {
+      auto& other = everyday[j];
+      bool shareDay = false;
+      for (int day = 0; day < 7; ++day)
+        if (std::find(base.except.begin(), base.except.end(), day) == base.except.end() &&
+            std::find(other.except.begin(), other.except.end(), day) == other.except.end())
+          shareDay = true;
+      if (shareDay && base.start < other.end && other.start < base.end)
+        problem(base.line, format("Slot '{1}' overlaps slot '{2}' on line {3}.", base.id,
+                                  other.id, other.line));
+    }
+
+    for (int day = 0; day < 7; ++day) {
+      if (std::find(base.except.begin(), base.except.end(), day) != base.except.end()) continue;
+
+      std::vector<std::string> by;
+      for (auto& own : slots)
+        if (own.everyday.empty() && own.weekday == day && own.start < base.end &&
+            base.start < own.end)
+          by.push_back(own.id);
+      if (!by.empty()) {
+        replaced.push_back({base.id, day, by});
+        continue;
+      }
+
+      Slot copy = base;
+      copy.weekday = day;
+      copy.except.clear();
+      copy.everyday = base.id;
+      copy.id = dayPrefix(day) + "-" + base.id;
+      for (auto& existing : slots)
+        if (existing.id == copy.id)
+          problem(base.line,
+                  format("[everyday] slot '{1}' makes '{2}' on {3}, but line {4} already "
+                         "defines a slot '{2}'.  Rename one of them.",
+                         base.id, copy.id, Datetime::dayName(day), existing.line));
+      slots.push_back(copy);
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -485,10 +564,14 @@ void Template::parseModeLine(Mode& mode, const std::string& line, int number) {
 ////////////////////////////////////////////////////////////////////////////////
 // Checks what can only be checked once the whole file is read.
 void Template::validate() {
+  expandEveryday();
+
   std::vector<std::string> categoryNames;
   for (auto& category : categories) categoryNames.push_back(category.name);
+  // Slot ids, including [everyday] ones, which stand for all their copies.
   std::vector<std::string> slotIds;
   for (auto& slot : slots) slotIds.push_back(slot.id);
+  for (auto& slot : everyday) slotIds.push_back(slot.id);
 
   auto isCategory = [&](const std::string& name) {
     return std::find(categoryNames.begin(), categoryNames.end(), name) != categoryNames.end();
@@ -523,17 +606,25 @@ void Template::validate() {
     if (category.filter.empty())
       problem(category.line, format("Category '{1}' needs a filter.", category.name));
 
-  for (auto& slot : slots) {
+  // Copies of [everyday] slots are checked once, as written.
+  std::vector<const Slot*> written;
+  for (auto& slot : slots)
+    if (slot.everyday.empty()) written.push_back(&slot);
+  for (auto& slot : everyday) written.push_back(&slot);
+  for (auto slotPointer : written) {
+    auto& slot = *slotPointer;
     if (!slot.category.empty() && !isCategory(slot.category))
       problem(slot.line, format("Slot '{1}': '{2}' is not a category.{3}", slot.id,
                                 slot.category, suggest(slot.category, categoryNames)));
     if (slot.hasFallback) checkChain(slot.fallback, slot.line, "the fallback option");
   }
 
-  // Overlapping slots on the same day.
+  // Overlapping slots on the same day.  Copies of [everyday] slots never
+  // overlap a day's own slots, which replace them.
   for (size_t i = 0; i < slots.size(); ++i)
     for (size_t j = i + 1; j < slots.size(); ++j)
-      if (slots[i].weekday == slots[j].weekday && slots[i].start < slots[j].end &&
+      if (slots[i].everyday.empty() && slots[j].everyday.empty() &&
+          slots[i].weekday == slots[j].weekday && slots[i].start < slots[j].end &&
           slots[j].start < slots[i].end)
         problem(slots[j].line, format("Slot '{1}' overlaps slot '{2}' on line {3}.", slots[j].id,
                                       slots[i].id, slots[i].line));
@@ -654,6 +745,13 @@ const Mode* Template::mode(const std::string& name) const {
 ////////////////////////////////////////////////////////////////////////////////
 const Slot* Template::slot(const std::string& id) const {
   for (auto& slot : slots)
+    if (slot.id == id) return &slot;
+  return nullptr;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+const Slot* Template::everydaySlot(const std::string& id) const {
+  for (auto& slot : everyday)
     if (slot.id == id) return &slot;
   return nullptr;
 }
