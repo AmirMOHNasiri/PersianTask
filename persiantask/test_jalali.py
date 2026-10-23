@@ -106,9 +106,8 @@ def test_machine_formats(task):
     check("Import is Gregorian", task.out("_get", imported["uuid"] + ".due"), "1403-12-30T00:00:00")
 
 
-def test_named_dates(task):
-    """Named dates are relative to today, in Jalali terms."""
-    today = datetime.date.today()
+def named_dates(today):
+    """The value of each named date, on the given day."""
     jy, jm, jd = ref.to_jalali(today)
     day = datetime.timedelta(days=1)
 
@@ -174,8 +173,20 @@ def test_named_dates(task):
                          (2, "pasfarda")]:
         expected[word] = start(today + datetime.timedelta(days=offset))
 
-    for word, value in expected.items():
-        check("Named date '{}'".format(word), task.calc(word), value)
+    return expected
+
+
+def test_named_dates(task):
+    """Named dates are relative to today, in Jalali terms."""
+    # If midnight passes while task is asked, ask again, on the new day.
+    for attempt in range(2):
+        today = datetime.date.today()
+        got = {word: task.calc(word) for word in named_dates(today)}
+        if datetime.date.today() == today:
+            break
+
+    for word, value in named_dates(today).items():
+        check("Named date '{}'".format(word), got[word], value)
 
 
 def test_persian_days_in_attributes(task):

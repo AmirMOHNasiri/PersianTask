@@ -122,7 +122,9 @@ def test_numeric_dates(task):
 def test_switching_keeps_data(task):
     """The calendar only changes display and parsing, never stored data."""
     task.out("add", "One", "due:1405-07-26", "scheduled:1405-07-20", "wait:1405-07-01")
-    task.out("add", "Two", "due:eom", "recur:monthly")
+    # Due well ahead: if a month ended during the test, the next instance
+    # would be made, which is a change, but not one the calendar made.
+    task.out("add", "Two", "due:now+40d", "recur:monthly")
     task.out("add", "Three", "project:x", "estimate:2h")
     task.out("list")  # Generates the recurring instances.
 

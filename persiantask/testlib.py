@@ -12,8 +12,12 @@ Tests must pass on any day, not only around the day they were written:
 - Otherwise, compute expectations from the real date (datetime.date.today()),
   and do not assume two named dates differ: on the last day of Esfand, the
   next Farvardin is also farda.
+- Time passes during a test, possibly across midnight or the end of a month:
+  a recurring task due soon (due:eom) may get a new instance while the test
+  runs.  Keep such dates well ahead (due:now+40d) unless that is the point.
 
-persiantask/faketime-tests.sh runs the suites at other real dates, to check.
+persiantask/faketime-tests.sh runs the suites at other real dates and times,
+including around midnight, Nowruz and the end of a leap year, to check.
 """
 
 import datetime

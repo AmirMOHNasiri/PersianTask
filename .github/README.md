@@ -229,7 +229,7 @@ Recurring tasks need one more thing, since "every month" means different dates i
 - `.github/workflows/persiantask-*.yml`: runs the tests, and merges upstream every week.
 - `pkg/arch/PKGBUILD`: the Arch Linux package, and `pkg/arch/persiantask.asc`, the key that signs the prebuilt packages.
 
-To run the tests: `bash persiantask/build-and-test.sh`. With `PERSIANTASK_FAKETIME_TESTS=1`, they run again with the clock a year ahead (this needs libfaketime), and `persiantask/faketime-tests.sh` runs them at any dates. With `PERSIANTASK_UPSTREAM_TESTS=1`, it also runs upstream Taskwarrior's own test suite with `calendar=gregorian`, which takes several more minutes; `persiantask/upstream-known-failures` lists the upstream tests that fail, and why.
+To run the tests: `bash persiantask/build-and-test.sh`. With `PERSIANTASK_FAKETIME_TESTS=1`, they run again with the clock a year ahead (this needs libfaketime), and `persiantask/faketime-tests.sh` runs them at any dates and times, or, by default, at a list of risky ones: around midnight, Nowruz, and the end of a Jalali leap year. With `PERSIANTASK_UPSTREAM_TESTS=1`, it also runs upstream Taskwarrior's own test suite with `calendar=gregorian`, which takes several more minutes; `persiantask/upstream-known-failures` lists the upstream tests that fail, and why.
 
 ## License
 
