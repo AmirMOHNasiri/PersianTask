@@ -8,46 +8,58 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
-## Unreleased
+## 3.5.0-persiantask.2 (2026-10-23)
 
-### The weekly schedule
+The schedule now plans by deadlines and the work left, not only by urgency.
 
-- An `[everyday]` section in the template, for slots that every day has, such
-  as lunch. Each day gets a copy, named after the day (`sat-lunch`), which
-  `move`, `swap` and the other commands change one day at a time. A day's own
-  slot at that time replaces it on that day, and `except:jome` leaves out
-  days. The example template uses it for lunch and dinner.
-- `task schedule check --expand` lists each day's slots as the schedule uses
-  them, with the `[everyday]` copies and what replaces them.
-- A task is no longer planned in slots that start after it is due, by its own
-  category, the fallback chain or `borrow`. An overdue task can still take any
-  slot, and is marked `overdue` in a new `Pace` column.
+### Planning by due dates
+
 - Pacing: a task with an estimate and a due date has its work spread over
   the weeks until it is due, instead of waiting for its last week. A task
-  that falls behind gets more slots, first in its own category and then in
-  empty slots its fallback chain reaches; one that cannot be finished in time
-  otherwise takes any slot it can reach, except protected ones and those whose
-  category would fall below its floor. The `Pace` column says `on track`,
-  `behind 2h`, `short 3h` or `overdue`, and today's schedule, the week and the
-  review warn when the work due by a date does not fit in the slots before it.
-  Template settings: `pacing` (on by default), `max.per-day` (the most time
-  one task gets in a day) and `overdue.critical-days` (7 by default).
-- Slots of the current week that have ended take no task and show `past`, so
-  that they no longer use up a task's slots or time for the rest of the day.
+  that falls behind gets more slots, first in its own category, then in empty
+  slots that its fallback chain reaches. One that cannot be finished in time
+  otherwise takes any slot it can reach, except protected slots and those
+  whose category would fall below its weekly floor.
+- A new `Pace` column says how each such task stands: `on track`,
+  `behind 2h`, `short 3h` or `overdue`. It appears only when needed.
+- Overload warning: today's schedule, the week and the review say when the
+  work due by a date does not fit in the slots before it, as in
+  `Overloaded before Doshanbe 27 Mehr: 12h of work, 10h of slots`.
+- A task is never planned in a slot that starts after it is due. An overdue
+  task can still take any slot; it is treated as urgent for
+  `overdue.critical-days` (7 by default), and then planned as usual.
+- `task schedule week next` (or any later week) is planned as if the work
+  planned before it were done, so nothing is planned twice.
+- Slots of this week that have already ended show `past` and take no task,
+  so they no longer use up a task's time for the rest of the day.
+- New template settings: `pacing` (on by default; `off` plans as before),
+  `max.per-day` (the most time one task gets in a day) and
+  `overdue.critical-days`.
+
+### Estimates
+
 - Default estimates: `estimate:4h` at the end of a category's line is the
   estimate of its tasks that have none, shown as `4h default`.
 - `task add` and `task modify` ask for an estimate, on a terminal, when a task
-  comes into a schedule category without one. `schedule.estimate.ask=off`
-  turns it off.
-- A task past its estimate shows `over estimate`, and
-  `task schedule left <task> <hours>` corrects the estimate to the hours the
-  task still needs.
-- `task schedule week next` plans the weeks in between first, as if their
-  planned work were done, so that work planned this week is not planned again
-  next week.
-- A slot that finds nothing to do, because its fallback chain ends in `rest`,
-  now shows `nothing to do` and `rest (fallback)`, dimmed, so that it is not
-  mistaken for a rest slot, such as lunch, which still shows `rest`.
+  comes into one of your categories without one. `task config
+  schedule.estimate.ask off` turns it off.
+- A task that has used up its estimate shows `over estimate`, and
+  `task schedule left <task> <hours>` sets the estimate so that the given
+  hours are left.
+
+### The template
+
+- An `[everyday]` section for slots that every day has, such as lunch. Each
+  day gets its own copy (`sat-lunch`, `sun-lunch`, ...), which commands such
+  as `move` and `swap` change one day at a time. A day's own slot at that time
+  replaces it on that day, and `except:jome` leaves out days. The example
+  template uses it for lunch and dinner.
+- `task schedule check --expand` lists each day's slots as the schedule uses
+  them, and `check` warns when a day's slot only partly overlaps an
+  `[everyday]` slot, which then drops out of that whole day.
+- A slot that finds nothing to do now shows `nothing to do` and
+  `rest (fallback)`, dimmed, so that it is not mistaken for a real break, such
+  as lunch, which still shows `rest`.
 
 ## 3.5.0-persiantask.1 (2026-10-20)
 

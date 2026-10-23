@@ -8,6 +8,7 @@ results do not depend on the day they run or on the user's data.
 """
 
 import datetime
+import json
 import os
 import re
 import subprocess
@@ -1881,6 +1882,52 @@ def test_ask_estimate(task):
                out)
 
 
+def test_left_like_modify(task):
+    """'left' changes the task as 'task modify' would: on-modify hooks run,
+    'task info' shows the change, and 'task undo' undoes it."""
+    write_template(task, ESTIMATES)
+    task.out("add", "Hooked", "project:os", "estimate:1h")
+    hooks = os.path.join(task.dir, "data", "hooks")
+    os.makedirs(hooks, exist_ok=True)
+    log = os.path.join(task.dir, "hook.log")
+    hook = os.path.join(hooks, "on-modify-log")
+    with open(hook, "w") as f:
+        f.write("#!/bin/sh\nread original\nread modified\necho \"$modified\" >> '{}'\n"
+                "echo \"$modified\"\nexit 0\n".format(log))
+    os.chmod(hook, 0o755)
+
+    task.out(NOW, "rc.hooks:on", "schedule", "left", "1", "3")
+    with open(log) as f:
+        logged = [json.loads(line) for line in f if line.strip()]
+    check_true("The on-modify hook ran, with the new estimate",
+               len(logged) == 1 and logged[0].get("estimate") == "PT2H", logged)
+    out = task.out("1", "info")
+    check_true("task info shows the change", re.search(r"Estimate set to 'PT2H'|Estimate changed from", out),
+               out)
+    task.out("undo")
+    check("task undo undoes it", task.export("1")[0]["estimate"], "PT1H")
+
+
+def test_everyday_partly_replaced(task):
+    """A day's slot that only partly overlaps an [everyday] slot drops all of
+    it that day: check warns, without failing.  Covering it is silent."""
+    write_template(task, "[everyday]\n12:00-13:00 lunch rest -\n"
+                         "[yekshanbe]\n10:30-13:30 sun-long rest -\n"     # Covers it.
+                         "[doshanbe]\n12:30-14:00 mon-late rest -\n"      # Partly.
+                         "[seshanbe]\n12:00-13:00 tue-same rest -\n"      # Exactly.
+                         "[chaharshanbe]\n11:00-12:30 wed-a rest -\n12:30-13:30 wed-b rest -\n")
+    code, out, err = task.run(NOW, "schedule", "check")
+    check_true("check succeeds, with a warning", code == 0 and "no problems" in out and
+               "Warning: On Doshanbe, mon-late only partly overlaps [everyday] slot 'lunch' "
+               "(12:00-13:00), which is then left out of that whole day." in out, out + err)
+    check("Only that one: covering, matching, or covering together are silent",
+          out.count("Warning"), 1)
+    out = task.out(NOW, "schedule", "check", "--expand")
+    check_true("check --expand marks it",
+               re.search(r"mon-late .*replaces \[everyday\] lunch \(partly overlapping\)", out) and
+               re.search(r"sun-long .*replaces \[everyday\] lunch$", out, re.M), out)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -1901,4 +1948,6 @@ if __name__ == "__main__":
                         test_critical, test_behind_through_fallback, test_max_per_day,
                         test_overdue_grace, test_pacing_settings, test_ended_slots,
                         test_overload_count, test_default_estimates,
-                        test_over_estimate_and_left, test_ask_estimate, test_help], fresh=True))
+                        test_over_estimate_and_left, test_ask_estimate,
+                        test_left_like_modify, test_everyday_partly_replaced,
+                        test_help], fresh=True))

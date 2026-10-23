@@ -569,7 +569,7 @@ Each day gets its own copy of every `[everyday]` slot, named after the day: `lun
 18:00-20:30    mon-commute      fixed   -     # no dinner at home on Doshanbe
 ```
 
-The whole `[everyday]` slot gives way, even if the overlap is only partial: there is no `sun-lunch` on Yekshanbe, and no `mon-dinner` on Doshanbe. `task schedule check --expand` shows the result for every day. Two `[everyday]` slots must not overlap each other on a day they share, and a copy's name must not be taken already: an `[everyday]` slot `lunch` and a day slot `sat-lunch` cannot both exist.
+The whole `[everyday]` slot gives way, even if the overlap is only partial: there is no `sun-lunch` on Yekshanbe, and no `mon-dinner` on Doshanbe. When the day's slots do not cover all of the `[everyday]` slot's time, so that some of it is lost that day, `task schedule check` warns (without failing), and `check --expand` marks the slot `(partly overlapping)`. `task schedule check --expand` shows the result for every day. Two `[everyday]` slots must not overlap each other on a day they share, and a copy's name must not be taken already: an `[everyday]` slot `lunch` and a day slot `sat-lunch` cannot both exist.
 
 Templates without an `[everyday]` section work as before.
 

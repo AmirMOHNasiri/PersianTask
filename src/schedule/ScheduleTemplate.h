@@ -64,6 +64,7 @@ struct Replacement {
   std::string everyday;  // The [everyday] slot's id.
   int weekday{0};
   std::vector<std::string> by;  // The day's slots that overlap it.
+  bool partly{false};  // They leave part of its time uncovered.
 };
 
 // A [mode <name>] section.  Modes are parsed and checked here, and applied
@@ -144,6 +145,7 @@ class Template {
   std::vector<Replacement> replaced;
   std::vector<Mode> modes;
   std::vector<Problem> problems;
+  std::vector<Problem> warnings;  // Not mistakes, but probably unintended.
 
  private:
   void parseSetting(const std::string&, int);

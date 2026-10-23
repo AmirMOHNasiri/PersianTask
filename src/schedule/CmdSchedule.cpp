@@ -341,7 +341,7 @@ static std::string expandedSlots(const Template& tmpl) {
             std::find(replacement.by.begin(), replacement.by.end(), slot->id) !=
                 replacement.by.end())
           origin += (origin.empty() ? "" : "; ") + std::string("replaces [everyday] ") +
-                    replacement.everyday;
+                    replacement.everyday + (replacement.partly ? " (partly overlapping)" : "");
       auto line = format("  {1}-{2}  {3} {4} {5} {6}", formatTime(slot->start),
                          formatTime(slot->end), leftJustify(slot->id, 16),
                          leftJustify(kindName(slot->kind), 9),
@@ -413,6 +413,8 @@ int CmdSchedule::check(const std::vector<std::string>& args, std::string& output
   out << format("{1}: no problems.  {2} slots on {3} days, {4} categories, {5} modes.\n",
                 Template::path(), tmpl.slots.size(), days.size(), tmpl.categories.size(),
                 tmpl.modes.size());
+  for (auto& warning : tmpl.warnings)
+    out << format("{1}:{2}: Warning: {3}\n", Template::path(), warning.line, warning.message);
 
   if (!args.empty()) out << expandedSlots(tmpl);
 

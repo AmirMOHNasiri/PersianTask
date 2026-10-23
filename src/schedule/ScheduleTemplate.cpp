@@ -536,12 +536,28 @@ void Template::expandEveryday() {
       if (std::find(base.except.begin(), base.except.end(), day) != base.except.end()) continue;
 
       std::vector<std::string> by;
+      std::vector<std::pair<int, int>> covered;
       for (auto& own : slots)
         if (own.everyday.empty() && own.weekday == day && own.start < base.end &&
-            base.start < own.end)
+            base.start < own.end) {
           by.push_back(own.id);
+          covered.emplace_back(own.start, own.end);
+        }
       if (!by.empty()) {
-        replaced.push_back({base.id, day, by});
+        // The whole [everyday] slot gives way.  If the day's slots do not
+        // cover all of it, some of its time is lost that day: worth a word.
+        std::sort(covered.begin(), covered.end());
+        int reached = base.start;
+        for (auto& range : covered)
+          if (range.first <= reached) reached = std::max(reached, range.second);
+        bool partly = reached < base.end;
+        replaced.push_back({base.id, day, by, partly});
+        if (partly)
+          warnings.push_back(
+              {base.line, format("On {1}, {2} only partly overlaps [everyday] slot '{3}' ({4}-{5}), "
+                                 "which is then left out of that whole day.",
+                                 Datetime::dayName(day), join(", ", by), base.id,
+                                 formatTime(base.start), formatTime(base.end))});
         continue;
       }
 
