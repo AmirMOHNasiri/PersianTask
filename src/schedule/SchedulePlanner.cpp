@@ -321,23 +321,53 @@ const Effort& Planner::effort(const Task& task) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+bool Planner::overdue(const Task& task) const {
+  return task.has("due") && task.get_date("due") < _reference.toEpoch();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+bool Planner::eligible(const Task& task, const Instance& instance) const {
+  if (!task.has("due") || overdue(task)) return true;
+  return instance.day.toEpoch() + instance.start * 60 < task.get_date("due");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// The estimated time still to plan, during plan(): the remaining time, less
+// what earlier weeks planned, less what this plan gave it so far.
+long Planner::left(const Task& task) {
+  auto uuid = task.get("uuid");
+  if (!_left.count(uuid)) {
+    auto carried = _carried.find(uuid);
+    _left[uuid] = effort(task).remaining - (carried == _carried.end() ? 0 : carried->second);
+  }
+  return _left[uuid];
+}
+
+////////////////////////////////////////////////////////////////////////////////
+std::map<std::string, long> Planner::carried() const {
+  auto total = _carried;
+  for (auto& entry : _consumed) total[entry.first] += entry.second;
+  return total;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // A task with remaining estimated time takes slots until that time is
 // planned.  Any other task, with no estimate or past its estimate, takes at
-// most unestimated.per-day slots a day.
+// most unestimated.per-day slots a day.  No task takes a slot that starts
+// after it is due, unless it is overdue already.
 bool Planner::available(const Task& task, const Instance& instance) {
+  if (!eligible(task, instance)) return false;
+
   auto uuid = task.get("uuid");
-  if (effort(task).remaining > 0) {
-    if (!_left.count(uuid)) _left[uuid] = effort(task).remaining;
-    if (_left[uuid] > 0) return true;
-    return false;
-  }
+  if (effort(task).remaining > 0) return left(task) > 0;
 
   return _used[{uuid, instance.day.toEpoch()}] < _template.unestimatedPerDay;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Only the part of a slot after the reference time plans new work: earlier
-// time is either tracked already, or gone.
+// time is either tracked already, or gone.  Nor does the part after the due
+// time, for a task not yet overdue.
 void Planner::use(const Task& task, const Instance& instance) {
   auto uuid = task.get("uuid");
   ++_used[{uuid, instance.day.toEpoch()}];
@@ -345,10 +375,12 @@ void Planner::use(const Task& task, const Instance& instance) {
   if (effort(task).remaining > 0) {
     auto start = instance.day.toEpoch() + instance.start * 60;
     auto end = instance.day.toEpoch() + instance.end * 60;
+    if (task.has("due") && !overdue(task)) end = std::min<time_t>(end, task.get_date("due"));
     auto from = std::max<time_t>(start, _reference.toEpoch());
     if (end > from) {
-      if (!_left.count(uuid)) _left[uuid] = effort(task).remaining;
+      left(task);
       _left[uuid] -= end - from;
+      _consumed[uuid] += end - from;
     }
   }
 }
@@ -408,6 +440,7 @@ std::map<std::string, int> Planner::minutesByCategory(const std::vector<Assignme
 std::vector<Assignment> Planner::plan(const Week& week) {
   _used.clear();
   _left.clear();
+  _consumed.clear();
   notes.clear();
 
   auto takesTasks = [](const Instance& instance) {
@@ -500,6 +533,22 @@ std::vector<Assignment> Planner::plan(const Week& week) {
   }
 
   return assignments;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+WeekPlan::WeekPlan(const Template& tmpl, const Datetime& day, const State* state)
+    : week(tmpl, day, state), planner(tmpl, week.reference()) {
+  std::map<std::string, long> carried;
+  for (auto start = weekStart(schedule::now()); start < week.start;) {
+    Week earlier(tmpl, start, state);
+    Planner previous(tmpl, earlier.reference());
+    previous.carry(carried);
+    previous.plan(earlier);
+    carried = previous.carried();
+    start = earlier.end();
+  }
+  planner.carry(carried);
+  assignments = planner.plan(week);
 }
 
 }  // namespace schedule

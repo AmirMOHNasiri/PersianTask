@@ -364,9 +364,10 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
         "The template has no borrow setting, which lists the slots that lend time, such as\n"
         "'borrow = fri-buffer arch research'.  See 'task schedule help template'.");
 
-  Week week(change.tmpl, day, &change.state);
-  Planner planner(change.tmpl, week.reference());
-  auto assignments = planner.plan(week);
+  WeekPlan plan(change.tmpl, day, &change.state);
+  auto& week = plan.week;
+  auto& planner = plan.planner;
+  auto& assignments = plan.assignments;
   auto minutes = planner.minutesByCategory(assignments);
   auto uuid = task.get("uuid");
   // Never before the current time, even in a past week.
@@ -395,6 +396,10 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
         slot.isProtected || !instance->pinnedTask.empty() || !instance->pinnedFilter.empty())
       continue;
     if (instance->day.toEpoch() + instance->start * 60 < now) continue;
+    // Never after the task is due, unless it is overdue already.
+    if (task.has("due") && task.get_date("due") >= now &&
+        instance->day.toEpoch() + instance->start * 60 >= task.get_date("due"))
+      continue;
     if (std::any_of(eligible.begin(), eligible.end(),
                     [&](auto& c) { return c.instance == instance; }))
       continue;
@@ -467,8 +472,8 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
 
   if (lent.empty())
     throw format("No slot can lend time to task {1} {2}.  The borrow setting lists {3}; only "
-                 "slots that start later this week, and are not fixed, rest, protected or "
-                 "assigned, can lend.{4}",
+                 "slots that start later this week, before the task is due, and are not fixed, "
+                 "rest, protected or assigned, can lend.{4}",
                  first,
                  week.start.sameDay(weekStart(schedule::now())) ? "this week" : "that week",
                  join(" ", change.tmpl.borrow), floorNote);

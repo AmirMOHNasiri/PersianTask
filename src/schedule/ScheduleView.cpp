@@ -18,6 +18,7 @@
 #include <format.h>
 #include <util.h>
 
+#include <algorithm>
 #include <sstream>
 
 namespace schedule {
@@ -113,7 +114,20 @@ std::string renderHours(const Template& tmpl, const std::vector<Assignment>& ass
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// What the plan means for the task's deadline, if anything.
+static std::string paceOf(const Assignment& assignment, const Planner& planner) {
+  if (!assignment.task) return "";
+  if (planner.overdue(*assignment.task)) return "overdue";
+  if (!planner.eligible(*assignment.task, *assignment.instance)) return "after due";  // Pinned.
+  return "";
+}
+
+////////////////////////////////////////////////////////////////////////////////
 std::string renderTable(const std::vector<Assignment>& assignments, bool days, Planner& planner) {
+  // The Pace column is only shown when it says something.
+  bool pace = std::any_of(assignments.begin(), assignments.end(),
+                          [&](auto& a) { return !paceOf(a, planner).empty(); });
+
   Table table;
   table.width(Context::getContext().getWidth());
   table.withColor(Context::getContext().color());
@@ -124,6 +138,7 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
   table.add("ID", false);
   table.add("Task");
   table.add("Estimate");
+  if (pace) table.add("Pace");
   table.add("From");
   setHeaderUnderline(table);
 
@@ -206,7 +221,8 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
     table.set(row, column + 3, id, color);
     table.set(row, column + 4, description, color);
     table.set(row, column + 5, estimate, color);
-    table.set(row, column + 6, from, color);
+    if (pace) table.set(row, column + 6, paceOf(assignment, planner), color);
+    table.set(row, column + (pace ? 7 : 6), from, color);
 
     previous = &instance;
   }

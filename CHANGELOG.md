@@ -19,6 +19,12 @@ and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
   days. The example template uses it for lunch and dinner.
 - `task schedule check --expand` lists each day's slots as the schedule uses
   them, with the `[everyday]` copies and what replaces them.
+- A task is no longer planned in slots that start after it is due, by its own
+  category, the fallback chain or `borrow`. An overdue task can still take any
+  slot, and is marked `overdue` in a new `Pace` column.
+- `task schedule week next` plans the weeks in between first, as if their
+  planned work were done, so that work planned this week is not planned again
+  next week.
 - A slot that finds nothing to do, because its fallback chain ends in `rest`,
   now shows `nothing to do` and `rest (fallback)`, dimmed, so that it is not
   mistaken for a rest slot, such as lunch, which still shows `rest`.

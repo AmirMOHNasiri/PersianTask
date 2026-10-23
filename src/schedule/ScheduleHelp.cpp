@@ -37,7 +37,9 @@ const std::vector<HelpEntry>& helpEntries() {
        "A whole week of slots and tasks",
        "Shows the week containing today, or the next or previous week, or the week\n"
        "containing a date.  Weeks start on the weekstart setting (Shanbe by default).\n"
-       "The number next to each slot can be used in place of its id.",
+       "The number next to each slot can be used in place of its id.  A later week is\n"
+       "planned as if the work planned before it were done.  No task is planned after\n"
+       "it is due, unless it is overdue already, which the Pace column then shows.",
        {"task schedule week", "task schedule week next", "task schedule week 1405-08-10"}},
 
       {"review", "[prev | next | week:<date>]",

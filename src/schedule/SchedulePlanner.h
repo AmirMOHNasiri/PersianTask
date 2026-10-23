@@ -178,7 +178,22 @@ class Planner {
   // for its own work if it has a floor, and otherwise the task's.
   std::string accountingCategory(const Assignment&);
 
+  const Datetime& reference() const { return _reference; }
+
+  // Whether the task may work in the slot: the slot starts before the task
+  // is due, or the task is overdue already, at the reference time.
+  bool eligible(const Task&, const Instance&) const;
+  bool overdue(const Task&) const;
+
+  // Planned time of earlier weeks, by uuid: for a later week, planned as if
+  // the work planned in the weeks before it were done.  carried() is what
+  // the next week starts from, after plan().
+  void carry(const std::map<std::string, long>& planned) { _carried = planned; }
+  std::map<std::string, long> carried() const;
+
  private:
+  long left(const Task&);
+
   std::optional<Task> pick(const std::string& filter, const Instance&);
   void use(const Task&, const Instance&);
   bool available(const Task&, const Instance&);
@@ -191,6 +206,22 @@ class Planner {
   std::map<std::pair<std::string, time_t>, int> _used;  // Slots per task (uuid) per day.
   std::map<std::string, Effort> _efforts;                // By uuid.
   std::map<std::string, long> _left;                     // Remaining, during plan().
+  std::map<std::string, long> _carried;                  // Planned in earlier weeks.
+  std::map<std::string, long> _consumed;                 // Planned by plan().
+};
+
+// A week and its plan.  A week after the current one is planned after the
+// weeks between them, in order, as if their planned work were done, so that
+// work planned this week is not planned again next week.
+class WeekPlan {
+ public:
+  WeekPlan(const Template&, const Datetime& day, const State*);
+  WeekPlan(const WeekPlan&) = delete;
+  WeekPlan& operator=(const WeekPlan&) = delete;
+
+  Week week;
+  Planner planner;
+  std::vector<Assignment> assignments;
 };
 
 // The current time.  The setting rc.schedule.now exists only for the tests,

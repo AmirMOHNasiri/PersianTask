@@ -197,11 +197,12 @@ int CmdSchedule::today(std::string& output) {
     state.load();
 
     auto day = schedule::now().startOfDay();
-    Week week(tmpl, day, &state);
-    Planner planner(tmpl, week.reference());
+    WeekPlan plan(tmpl, day, &state);
+    auto& week = plan.week;
+    auto& planner = plan.planner;
 
     std::vector<Assignment> todays;
-    for (auto& assignment : planner.plan(week))
+    for (auto& assignment : plan.assignments)
       if (assignment.instance->day.sameDay(day)) todays.push_back(assignment);
 
     out << configColor("color.schedule.header")
@@ -259,9 +260,10 @@ int CmdSchedule::week(const std::vector<std::string>& args, std::string& output)
 
   State state;
   state.load();
-  Week week(tmpl, day, &state);
-  Planner planner(tmpl, week.reference());
-  auto assignments = planner.plan(week);
+  WeekPlan plan(tmpl, day, &state);
+  auto& week = plan.week;
+  auto& planner = plan.planner;
+  auto& assignments = plan.assignments;
 
   std::stringstream out;
   out << '\n'

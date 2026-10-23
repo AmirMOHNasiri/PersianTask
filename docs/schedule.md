@@ -47,6 +47,8 @@ Slots get their tasks in two passes over the week, both in time order:
 
 The first pass comes first so that one slot's fallback never takes the task that another slot's own category was meant for.
 
+**Due dates.** A task is never planned in a slot that starts after it is due, in either pass, nor lent such a slot by `borrow`. A task that is already overdue, at the time the week is planned, is the exception: it may take any slot, and its row says `overdue` in the `Pace` column. That column appears only when some row needs it; it also says `after due` for a task assigned by hand to a slot after its due time. For a task with an estimate, only the part of a slot before the due time counts towards the estimate.
+
 Only pending tasks are scheduled: not waiting tasks, and not tasks blocked by a dependency. Urgency is Taskwarrior's usual urgency, so priorities (`priority:H`), due dates, tags and the rest all count. A task with an [estimate](#estimates) fills slots until its estimated time is planned. Any other task fills at most `unestimated.per-day` slots a day (one, by default), so that a single task does not take over the whole day.
 
 The schedule ignores the active Taskwarrior context (`task context`): slots always pull from all your tasks.
@@ -116,6 +118,8 @@ task schedule week 1405-08-10
 A whole week of slots and tasks: this week, the next or previous one, or the week containing a date. Weeks start on the `weekstart` setting, Shanbe by default, and the header gives the week number and its first and last days.
 
 Each slot is numbered within the week. The number can be used in place of the slot's id.
+
+A later week is planned as if the work planned before it were done: the weeks from this one up to it are planned in order, and the estimated time each of them plans is not planned again. So if this week plans 12 of a task's 16 hours, next week plans the other 4. Plans are computed every time you look, from your tasks as they are then, so changing a task (its due date, its estimate, finishing it) changes the plan at once.
 
 ### task schedule swap
 
@@ -298,7 +302,7 @@ borrow = fri-buffer arch wed-floating uptodate research
 
 Each name is a slot, or a category, meaning that category's slots in time order. Whole slots are taken until the hours are covered. A slot can lend only if:
 
-- it starts after the current time,
+- it starts after the current time, and before the task is due (unless the task is overdue already),
 - it is not fixed, rest, protected (such as Friday afternoon), or an event,
 - it is not assigned to other work already,
 - and its category keeps its floor: a category lends only as long as its planned hours stay at or above its floor. Hours use each slot's length after this week's changes.

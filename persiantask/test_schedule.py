@@ -1395,6 +1395,125 @@ def test_rest_display(task):
     check_true("The rest slot is not", red not in rows.get("lunch", ""), rows)
 
 
+DUE = """
+[settings]
+fallback = soon rest
+
+[categories]
+x     -   project:x
+y     -   project:y
+soon  -   due.before:now+7d
+
+[everyday]
+10:00-11:00  x1    study  x
+14:00-15:00  free  study  y
+"""
+
+
+def column(found, day_ids, field=1):
+    return [found.get(i, ("", "", ""))[field] for i in day_ids]
+
+
+WEEK = ["sat", "sun", "mon", "tue", "wed", "thu", "fri"]
+
+
+def test_due_cutoff(task):
+    """No task is planned in a slot that starts after it is due: neither in
+    its own category's slots, nor through the fallback chain."""
+    write_template(task, DUE)
+    task.out("add", "X", "project:x", "due:1405-07-27T23:59")  # Doshanbe.
+    task.out("add", "S", "project:z", "due:1405-07-28T23:59")  # Seshanbe.
+    found = slots(task.out(NOW, "schedule", "week"))
+    # On Seshanbe, the empty x1 slot (10:00) takes S through the fallback,
+    # before the free slot (14:00): one slot a day for a task with no estimate.
+    check("Own category: until the due day, then nothing (S comes by fallback)",
+          column(found, [d + "-x1" for d in WEEK]),
+          ["X", "X", "X", "S", "nothing to do", "nothing to do", "nothing to do"])
+    check("Fallback: until the due day, then nothing",
+          column(found, [d + "-free" for d in WEEK]),
+          ["S", "S", "S", "nothing to do", "nothing to do", "nothing to do", "nothing to do"])
+
+
+def test_due_next_week(task):
+    """The reported case: a task due on Chaharshanbe next week is not planned
+    on Panjshanbe and Jome of that week."""
+    write_template(task, DUE)
+    task.out("add", "N", "project:x", "due:1405-08-06T23:59")
+    found = slots(task.out(NOW, "schedule", "week", "next"))
+    check("Next week: until Chaharshanbe only", column(found, [d + "-x1" for d in WEEK]),
+          ["N", "N", "N", "N", "N", "nothing to do", "nothing to do"])
+    check("Not through the soon fallback either", column(found, ["thu-free", "fri-free"]),
+          ["nothing to do", "nothing to do"])
+
+
+def test_overdue(task):
+    """An overdue task stays eligible everywhere, marked overdue; a task
+    assigned after it is due is marked so."""
+    write_template(task, DUE)
+    task.out("add", "O", "project:x", "due:1405-07-24")  # Jome before the week.
+    task.out("add", "X", "project:y", "due:1405-07-27T23:59")
+    task.out(NOW, "schedule", "assign", "thu-free", "2")
+    out = task.out(NOW, "schedule", "week")
+    found = slots(out)
+    check("An overdue task is planned all week, and marked",
+          [found.get(d + "-x1") for d in ("sat", "fri")],
+          [("1", "O", "overdue x"), ("1", "O", "overdue x")])
+    check("A task assigned after its due is marked", found.get("thu-free"),
+          ("2", "X", "after due assigned"))
+    check_true("The Pace column", "Pace" in out, out)
+
+    task.out("1", "done")
+    task.out(NOW, "schedule", "reset", "week")
+    out = task.out(NOW, "schedule", "week")
+    check_true("No Pace column when it would be empty", "Pace" not in out, out)
+
+
+def test_borrow_due(task):
+    write_template(task, DUE.replace("fallback = soon rest", "fallback = rest\nborrow = free"))
+    task.out("add", "B", "project:b", "due:1405-07-27T23:59", "estimate:5h")
+    out = task.out(NOW, "schedule", "borrow", "1", "5")
+    check_true("borrow takes only slots before the due time",
+               "sat-free" in out and "mon-free" in out and "tue-free" not in out and
+               "Borrowed 3h" in out, out)
+
+
+CHAIN = """
+[categories]
+x  -  project:x
+
+[everyday]
+10:00-12:00  x  study  x
+"""
+
+
+def test_chained_weeks(task):
+    """A later week is planned as if the work planned before it were done."""
+    write_template(task, CHAIN)
+    task.out("add", "E", "project:x", "estimate:16h")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("This week: every slot", column(found, [d + "-x" for d in WEEK]), ["E"] * 7)
+    # This week plans 12h (Shanbe's slot is past), so 4h are left: two slots.
+    found = slots(task.out(NOW, "schedule", "week", "next"))
+    check("Next week: only what is left", column(found, [d + "-x" for d in WEEK]),
+          ["E", "E"] + ["nothing to do"] * 5)
+    found = slots(task.out(NOW, "schedule", "week", "1405-08-10"))
+    check("The week after: nothing", column(found, [d + "-x" for d in WEEK]),
+          ["nothing to do"] * 7)
+
+
+def test_due_change(task):
+    """Plans are computed on each view, so a new due date applies at once."""
+    write_template(task, DUE)
+    task.out("add", "D", "project:x", "due:1405-07-27T23:59")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("Before: until Doshanbe", column(found, ["mon-x1", "tue-x1", "wed-x1"]),
+          ["D", "nothing to do", "nothing to do"])
+    task.out("1", "modify", "due:1405-07-29T23:59")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("After: until Chaharshanbe", column(found, ["mon-x1", "tue-x1", "wed-x1", "thu-x1"]),
+          ["D", "D", "D", "nothing to do"])
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -1409,4 +1528,6 @@ if __name__ == "__main__":
                         test_review, test_review_tracked, test_attribution, test_review_buffer,
                         test_review_deadlines, test_mode_exam, test_mode_precedence,
                         test_mode_project, test_mode_commands, test_everyday,
-                        test_everyday_errors, test_rest_display, test_help], fresh=True))
+                        test_everyday_errors, test_rest_display, test_due_cutoff,
+                        test_due_next_week, test_overdue, test_borrow_due, test_chained_weeks,
+                        test_due_change, test_help], fresh=True))
