@@ -253,6 +253,8 @@ class Planner {
   const Pace* pace(const Task&) const;
   // Time planned for the task this week, after the reference time.
   long planned(const Task&) const;
+  // Time planned for it in the weeks before this one, for a later week.
+  long plannedBefore(const Task&) const;
 
   // After plan(): due dates by which the work due exceeds the time of the
   // slots that can hold it, counting each slot once, earliest first.

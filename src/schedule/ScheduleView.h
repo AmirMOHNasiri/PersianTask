@@ -49,7 +49,8 @@ std::string renderHours(const Template&, const std::vector<Assignment>&, Planner
 
 // "2h (3h)": the estimate and the planned time, and what is left of it once
 // time has been tracked.
-std::string describeEffort(const Effort&);
+// For a later week, before is the time planned in the weeks before it.
+std::string describeEffort(const Effort&, long before = 0);
 
 // The notes of a week and its plan, one line each, starting with overloads.
 std::string renderNotes(const Week&, const Planner&);

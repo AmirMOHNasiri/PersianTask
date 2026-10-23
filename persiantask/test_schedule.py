@@ -1928,6 +1928,112 @@ def test_everyday_partly_replaced(task):
                re.search(r"sun-long .*replaces \[everyday\] lunch$", out, re.M), out)
 
 
+IDLE = """
+[settings]
+estimate.factor = 1.5
+max.per-day = 3h
+fallback = soon project rest
+
+[categories]
+db       -  project:db
+other    -  project:other
+soon     -  due.before:now+7d
+project  -  +project
+
+[everyday]
+14:00-16:00  s  study  other
+
+[seshanbe]
+20:30-21:30  tue-db  study  db
+"""
+
+
+def test_project_left_after_earlier_weeks(task):
+    """The reported case: a project with 1h of its own slots a week, and free
+    slots it reaches through 'project' in their fallback chain.  Its 9h are
+    planned in the first free slots, this week and next; the slots after them
+    are free because no work is left, which the Estimate column shows."""
+    write_template(task, IDLE)
+    task.out("add", "DB", "project:db", "+project", "estimate:6h", "due:1405-08-18T23:59")
+    thursday = "rc.schedule.now:2026-10-22T12:00:00"
+    found = slots(task.out(thursday, "schedule", "week"))
+    check("This week: every free slot left", [found[s][1] for s in ("thu-s", "fri-s")],
+          ["DB", "DB"])
+    out = task.out(thursday, "schedule", "week", "next")
+    found = slots(out)
+    # 9h, less 4h this week: 5h, in Seshanbe's db slot and the first free ones.
+    check("Next week: until the 5h are planned",
+          [found[s][1] for s in ("sat-s", "sun-s", "mon-s", "tue-db", "wed-s")],
+          ["DB", "DB", "nothing to do", "DB", "nothing to do"])
+    check_true("The Estimate column says what is left after this week",
+               "6h (9h), 5h left" in found["sat-s"][2] and "on track" in found["sat-s"][2],
+               found["sat-s"])
+    check_true("A note explains it", "the weeks before this one are planned first" in out, out)
+
+
+def test_work_conserving(task):
+    """No slot stays empty while a task it reaches could take it.  Test
+    builds check every plan for it, and say so in a 'Test:' note."""
+    if os.environ.get("PERSIANTASK_TESTING") != "1":
+        return
+    sys.path.insert(0, HERE)
+    import perf_schedule
+
+    with open(os.path.join(ROOT, "examples", "schedule", "student-week")) as f:
+        example = f.read()
+    variants = [example, example.replace("fallback            = soon term ds arch rest",
+                                         "fallback            = soon project ds arch rest\n"
+                                         "max.per-day         = 3h")
+                                .replace("term        -       +term",
+                                         "term        -       +term\nproject     -       +project")]
+    for number, template in enumerate(variants):
+        for seed in (1, 2):
+            write_template(task, template)
+            for t in task.export():
+                task.run(t["uuid"], "delete")
+            tasks = perf_schedule.dataset(count=40, seed=seed)
+            for i, t in enumerate(tasks):
+                if i % 5 == 0:
+                    t.setdefault("tags", []).append("project")
+            path = os.path.join(task.dir, "tasks.json")
+            with open(path, "w") as f:
+                json.dump(tasks, f)
+            task.out("import", path)
+            for week in ([], ["next"], ["1405-08-10"], ["1405-08-17"]):
+                out = task.out(NOW, "schedule", "week", *week)
+                check_true("No idle slot with work for it: template {}, seed {}, week {}".format(
+                    number, seed, " ".join(week) or "this"), "Test: slot" not in out,
+                    [line for line in out.splitlines() if "Test:" in line][:3])
+
+
+def test_compact_layout(task):
+    """On a narrow terminal, the week is compact: no Estimate and Pace
+    columns (they are listed under it), short day names, '-' for empty slots
+    and '*' for fallback work."""
+    write_template(task, IDLE)
+    task.out("add", "DB project phase 1", "project:db", "+project", "estimate:6h",
+             "due:1405-08-18T23:59")
+    out = task.out(NOW, "rc.defaultwidth:80", "schedule", "week")
+    check_true("Compact on 80 columns", "Estimate" in out and
+               out.index("Estimate") > out.index("From"), out)
+    check_true("Every line fits", all(len(line) <= 80 for line in out.splitlines()), out)
+    check_true("Short day names", re.search(r"^Yek 26 ", out, re.M), out)
+    check_true("Empty slots are a dash", re.search(r"wed-s\s+-\s*$", out, re.M), out)
+    check_true("Fallback work is marked, with a legend",
+               re.search(r"sun-s\s+1 DB project phase 1 project\*", out) and
+               "* from the fallback chain." in out, out)
+    check_true("Estimates and pace under the table",
+               re.search(r"1 DB project phase 1 6h \(9h\)\s+on track", out), out)
+
+    out = task.out(NOW, "schedule", "week")  # 200 columns.
+    check_true("Full on a wide terminal", re.search(r"Estimate\s+Pace\s+From", out), out)
+    check_true("schedule.layout=compact forces it",
+               "project*" in task.out(NOW, "rc.schedule.layout:compact", "schedule", "week"), "")
+    out = task.out(NOW, "rc.defaultwidth:80", "rc.schedule.layout:full", "schedule", "week")
+    check_true("schedule.layout=full forces it, wrapped as it may be",
+               "fallback" in out and "from the fallback chain" not in out, out)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -1950,4 +2056,5 @@ if __name__ == "__main__":
                         test_overload_count, test_default_estimates,
                         test_over_estimate_and_left, test_ask_estimate,
                         test_left_like_modify, test_everyday_partly_replaced,
-                        test_help], fresh=True))
+                        test_project_left_after_earlier_weeks, test_work_conserving,
+                        test_compact_layout, test_help], fresh=True))

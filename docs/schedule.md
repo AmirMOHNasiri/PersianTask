@@ -159,7 +159,9 @@ A whole week of slots and tasks: this week, the next or previous one, or the wee
 
 Each slot is numbered within the week. The number can be used in place of the slot's id.
 
-A later week is planned as if the work planned before it were done: the weeks from this one up to it are planned in order, and the estimated time each of them plans is not planned again. So if this week plans 12 of a task's 16 hours, next week plans the other 4. Plans are computed every time you look, from your tasks as they are then, so changing a task (its due date, its estimate, finishing it) changes the plan at once.
+On a narrow terminal, where the full table would not fit, the week (and today's schedule) is shown compact: day names are short (`Sha 2`), the `Estimate` and `Pace` columns move to a list of the tasks under the table, a slot with nothing to do shows a dimmed `-`, and in the `From` column `soon*` means work from the fallback chain and `os~` work a mode gave the slot, as a line under the table recalls. `task config schedule.layout full` (or `compact`) chooses one layout whatever the width; the default, `auto`, chooses by width.
+
+A later week is planned as if the work planned before it were done: the weeks from this one up to it are planned in order, and the estimated time each of them plans is not planned again. So if this week plans 12 of a task's 16 hours, next week plans the other 4, and its `Estimate` column says `4h left`; once those are planned, the task takes no more slots that week, and slots with nothing else to do stay free. A note under such a week says so. Plans are computed every time you look, from your tasks as they are then, so changing a task (its due date, its estimate, finishing it) changes the plan at once.
 
 ### task schedule swap
 
@@ -618,6 +620,7 @@ These go in `.taskrc`, and can be set with `task config`:
 | `schedule.report` | `important` | The report below today's schedule, or `none`. |
 | `schedule.estimate.uda` | `estimate` | The UDA holding [estimates](#estimates). It must be a duration. |
 | `schedule.estimate.ask` | `on` | Ask for an estimate in `task add` and `task modify`, on a terminal, when a task comes into a category without one. |
+| `schedule.layout` | `auto` | The layout of the schedule's tables: `full`, `compact` for narrow terminals, or `auto`, which chooses by width. |
 | `dateformat.schedule` | `A d B Y` | The date format of the schedule's headers. |
 | `color.schedule.header` | `bold` | Color of the day headers. |
 | `color.schedule.now` | `bold green` | Color of the current slot. |

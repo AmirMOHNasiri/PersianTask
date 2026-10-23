@@ -563,6 +563,12 @@ long Planner::planned(const Task& task) const {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+long Planner::plannedBefore(const Task& task) const {
+  auto found = _carried.find(task.get("uuid"));
+  return found == _carried.end() ? 0 : found->second;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 bool Planner::critical(const std::string& uuid) const {
   auto found = _paces.find(uuid);
   return found != _paces.end() && found->second.critical;
@@ -949,6 +955,27 @@ std::vector<Assignment> Planner::plan(const Week& week) {
       }
     }
   }
+
+#ifdef PERSIANTASK_TESTING
+  // The plan is work-conserving: no slot that takes tasks stays empty while
+  // a task it reaches, through its own category or its fallback chain, could
+  // still take it.  Test builds check it, for the tests to see.
+  for (auto& assignment : assignments) {
+    auto& instance = *assignment.instance;
+    if (!takesTasks(instance) || instance.event || assignment.task) continue;
+    std::vector<std::string> filters;
+    if (!instance.skipped) filters.push_back(homeFilter(instance));
+    for (auto& step : _template.fallbackFor(*instance.slot)) {
+      if (step == "rest") break;
+      if (auto category = _template.category(step)) filters.push_back(category->filter);
+    }
+    for (auto& filter : filters)
+      for (auto& task : filter.empty() ? std::vector<Task>() : matching(filter))
+        if (effort(task).remaining > 0 && available(task, instance))
+          notes.push_back(format("Test: slot {1} on {2} is empty, but task {3} could take it.",
+                                 instance.id, instance.day.toString("Y-M-D"), task.id));
+  }
+#endif
 
   // Tasks planned this week that are past their estimate, which is probably
   // wrong: 'task schedule left' corrects it.

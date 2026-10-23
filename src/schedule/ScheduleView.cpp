@@ -16,9 +16,11 @@
 #include <ScheduleView.h>
 #include <Table.h>
 #include <format.h>
+#include <utf8.h>
 #include <util.h>
 
 #include <algorithm>
+#include <set>
 #include <sstream>
 
 namespace schedule {
@@ -90,13 +92,18 @@ std::string describePlace(const Datetime& day, int start, int end) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-std::string describeEffort(const Effort& effort) {
+std::string describeEffort(const Effort& effort, long before) {
   if (effort.estimate <= 0) return "";
 
   auto text = formatHours(effort.estimate) + (effort.defaulted ? " default" : "") + " (" +
               formatHours(effort.planned) + ")";
   if (effort.remaining <= 0) return text + ", over estimate";
-  if (effort.tracked > 0) text += ", " + formatHours(effort.remaining) + " left";
+
+  // What is left: after the time tracked, and in a later week, after what
+  // the weeks before it plan.
+  auto left = effort.remaining - before;
+  if (left <= 0) return text + ", planned before";
+  if (effort.tracked > 0 || before > 0) text += ", " + formatHours(left) + " left";
   return text;
 }
 
@@ -137,113 +144,201 @@ static std::string paceOf(const Assignment& assignment, const Planner& planner) 
 
 ////////////////////////////////////////////////////////////////////////////////
 std::string renderTable(const std::vector<Assignment>& assignments, bool days, Planner& planner) {
+  auto& context = Context::getContext();
+  auto current = schedule::now();
+  int minutes = current.hour() * 60 + current.minute();
+
+  // Each row's cells, in both layouts.  The compact one leaves out Estimate
+  // and Pace, which it lists under the table, shortens day names, and
+  // marks fallback work with '*' and a mode's with '~'.
+  struct Row {
+    bool newDay{false};
+    std::string day, shortDay, number, time, slot, id, task, estimate, pace, from, shortFrom;
+    Color color;
+    bool empty{false};  // Found nothing to do.
+  };
+  std::vector<Row> rows;
+  bool fallbackMark = false, modeMark = false;
+
+  const Instance* previous = nullptr;
+  for (auto& assignment : assignments) {
+    auto& instance = *assignment.instance;
+    auto& slot = *instance.slot;
+    Row row;
+
+    switch (assignment.source) {
+      case Source::event:
+        row.task = instance.event->title;
+        row.from = row.shortFrom = "event";
+        break;
+      case Source::fixed:
+        row.from = row.shortFrom = "fixed";
+        break;
+      case Source::rest:
+        // A rest slot is a break by design; a slot whose fallback chain ended
+        // in rest found nothing to do.
+        if (slot.kind != Kind::rest) {
+          row.task = slot.optional ? "" : "nothing to do";
+          row.from = "rest (fallback)";
+          row.empty = true;
+        } else
+          row.from = row.shortFrom = "rest";
+        break;
+      case Source::pinned:
+        row.from = row.shortFrom = "assigned";
+        break;
+      case Source::borrowed:
+        row.from = row.shortFrom = "borrowed";
+        break;
+      case Source::slot:
+        row.from = row.shortFrom = assignment.via.empty() ? "filter" : assignment.via;
+        if (!assignment.mode.empty()) {
+          row.from += " (" + assignment.mode + ")";
+          row.shortFrom += "~";
+          modeMark = true;
+        }
+        break;
+      case Source::fallback:
+        row.from = assignment.via + " (fallback)";
+        row.shortFrom = assignment.via + "*";
+        fallbackMark = true;
+        break;
+      case Source::past:
+        row.from = row.shortFrom = "past";
+        break;
+      case Source::none:
+        row.task = slot.optional ? "" : "nothing to do";
+        row.from = slot.optional ? "optional" : "-";
+        row.shortFrom = slot.optional ? "optional" : "";
+        row.empty = true;
+        break;
+    }
+    if (instance.skipped) {
+      row.from += ", skipped";
+      row.shortFrom += " skipped";
+    }
+
+    if (assignment.task) {
+      auto& task = *assignment.task;
+      row.id = std::to_string(task.id);
+      row.task = task.get("description");
+      row.estimate = describeEffort(planner.effort(task), planner.plannedBefore(task));
+      row.pace = paceOf(assignment, planner);
+    }
+
+    bool sameDay = previous && previous->day.sameDay(instance.day);
+    row.newDay = days && previous && !sameDay;
+    if (days && !sameDay) {
+      row.day = describeDay(instance.day);
+      row.shortDay = instance.day.toString("a d");
+    }
+
+    bool past = instance.day < current.startOfDay() ||
+                (instance.day.sameDay(current) && instance.end <= minutes);
+    bool now = instance.day.sameDay(current) && instance.start <= minutes && minutes < instance.end;
+    if (now)
+      row.color = configColor("color.schedule.now");
+    else if (past)
+      row.color = configColor("color.schedule.past");
+    else if (!assignment.task && (slot.optional || row.empty))
+      row.color = configColor("color.schedule.optional");
+
+    row.number = instance.number ? std::to_string(instance.number) : "";
+    row.time = formatTime(instance.start) + '-' + formatTime(instance.end);
+    row.slot = instance.id + (instance.moved ? " (moved)" : "");
+    rows.push_back(row);
+    previous = &instance;
+  }
+
   // The Pace column is only shown when it says something.
-  bool pace = std::any_of(assignments.begin(), assignments.end(),
-                          [&](auto& a) { return !paceOf(a, planner).empty(); });
+  bool pace = std::any_of(rows.begin(), rows.end(), [](auto& r) { return !r.pace.empty(); });
+
+  // The full layout, unless it does not fit (or schedule.layout says).
+  auto width = context.getWidth();
+  auto layout = context.config.get("schedule.layout");
+  bool compact = layout == "compact";
+  if (layout != "compact" && layout != "full") {
+    std::vector<std::vector<std::string>> columns(9);
+    for (auto& r : rows) {
+      std::vector<std::string> cells{r.day, r.number, r.time, r.slot, r.id, r.task, r.estimate,
+                                     r.pace, r.from};
+      for (size_t c = 0; c < cells.size(); ++c) columns[c].push_back(cells[c]);
+    }
+    std::vector<std::string> headers{"Day", "#", "Time", "Slot", "ID", "Task", "Estimate", "Pace",
+                                     "From"};
+    int needed = -1;
+    for (size_t c = 0; c < columns.size(); ++c) {
+      if ((c == 0 && !days) || (c == 7 && !pace)) continue;
+      unsigned widest = utf8_width(headers[c]);
+      for (auto& cell : columns[c]) widest = std::max(widest, utf8_width(cell));
+      needed += static_cast<int>(widest) + 1;
+    }
+    compact = needed > width;
+  }
 
   Table table;
-  table.width(Context::getContext().getWidth());
-  table.withColor(Context::getContext().color());
+  table.width(width);
+  table.withColor(context.color());
   if (days) table.add("Day");
   table.add("#", false);
   table.add("Time");
   table.add("Slot");
   table.add("ID", false);
   table.add("Task");
-  table.add("Estimate");
-  if (pace) table.add("Pace");
+  if (!compact) {
+    table.add("Estimate");
+    if (pace) table.add("Pace");
+  }
   table.add("From");
   setHeaderUnderline(table);
 
-  auto current = schedule::now();
-  int minutes = current.hour() * 60 + current.minute();
-  int column = days ? 1 : 0;
-
-  const Instance* previous = nullptr;
-  for (auto& assignment : assignments) {
-    auto& instance = *assignment.instance;
-    auto& slot = *instance.slot;
-
-    std::string id, description, estimate, from;
-    switch (assignment.source) {
-      case Source::event:
-        description = instance.event->title;
-        from = "event";
-        break;
-      case Source::fixed:
-        from = "fixed";
-        break;
-      case Source::rest:
-        // A rest slot is a break by design; a slot whose fallback chain ended
-        // in rest found nothing to do.
-        if (slot.kind != Kind::rest) {
-          description = slot.optional ? "" : "nothing to do";
-          from = "rest (fallback)";
-        } else
-          from = "rest";
-        break;
-      case Source::pinned:
-        from = "assigned";
-        break;
-      case Source::borrowed:
-        from = "borrowed";
-        break;
-      case Source::slot:
-        from = assignment.via.empty() ? "filter" : assignment.via;
-        if (!assignment.mode.empty()) from += " (" + assignment.mode + ")";
-        break;
-      case Source::fallback:
-        from = assignment.via + " (fallback)";
-        break;
-      case Source::past:
-        from = "past";
-        break;
-      case Source::none:
-        description = slot.optional ? "" : "nothing to do";
-        from = slot.optional ? "optional" : "-";
-        break;
-    }
-    if (instance.skipped) from += ", skipped";
-
-    if (assignment.task) {
-      auto task = *assignment.task;
-      id = std::to_string(task.id);
-      description = task.get("description");
-      estimate = describeEffort(planner.effort(task));
-    }
-
-    bool sameDay = previous && previous->day.sameDay(instance.day);
-    if (days && previous && !sameDay) table.addRow();
-
-    bool past = instance.day < current.startOfDay() ||
-                (instance.day.sameDay(current) && instance.end <= minutes);
-    bool now = instance.day.sameDay(current) && instance.start <= minutes && minutes < instance.end;
-
-    Color color;
-    if (now)
-      color = configColor("color.schedule.now");
-    else if (past)
-      color = configColor("color.schedule.past");
-    else if (!assignment.task && (slot.optional || (assignment.source == Source::rest &&
-                                                     slot.kind != Kind::rest)))
-      color = configColor("color.schedule.optional");
-
+  for (auto& r : rows) {
+    if (r.newDay) table.addRow();
     auto row = table.addRow();
-    if (days && !sameDay)
-      table.set(row, 0, describeDay(instance.day), configColor("color.schedule.header"));
-    table.set(row, column + 0, instance.number ? std::to_string(instance.number) : "", color);
-    table.set(row, column + 1, formatTime(instance.start) + '-' + formatTime(instance.end), color);
-    table.set(row, column + 2, instance.id + (instance.moved ? " (moved)" : ""), color);
-    table.set(row, column + 3, id, color);
-    table.set(row, column + 4, description, color);
-    table.set(row, column + 5, estimate, color);
-    if (pace) table.set(row, column + 6, paceOf(assignment, planner), color);
-    table.set(row, column + (pace ? 7 : 6), from, color);
-
-    previous = &instance;
+    int column = 0;
+    if (days)
+      table.set(row, column++, compact ? r.shortDay : r.day, configColor("color.schedule.header"));
+    table.set(row, column++, r.number, r.color);
+    table.set(row, column++, r.time, r.color);
+    table.set(row, column++, r.slot, r.color);
+    table.set(row, column++, r.id, r.color);
+    table.set(row, column++, compact && r.empty ? "-" : r.task, r.color);
+    if (!compact) {
+      table.set(row, column++, r.estimate, r.color);
+      if (pace) table.set(row, column++, r.pace, r.color);
+    }
+    table.set(row, column++, compact ? r.shortFrom : r.from, r.color);
   }
 
-  return table.render();
+  auto output = table.render();
+  if (!compact) return output;
+
+  // Compact: the tasks' estimates and pace, once each, under the table.
+  Table tasks;
+  tasks.width(width);
+  tasks.withColor(context.color());
+  tasks.add("ID", false);
+  tasks.add("Task");
+  tasks.add("Estimate");
+  if (pace) tasks.add("Pace");
+  setHeaderUnderline(tasks);
+  std::set<std::string> listed;
+  for (auto& r : rows) {
+    if (r.id.empty() || (r.estimate.empty() && r.pace.empty()) || !listed.insert(r.id).second)
+      continue;
+    auto row = tasks.addRow();
+    tasks.set(row, 0, r.id);
+    tasks.set(row, 1, r.task);
+    tasks.set(row, 2, r.estimate);
+    if (pace) tasks.set(row, 3, r.pace);
+  }
+
+  std::string legend;
+  if (fallbackMark) legend += "* from the fallback chain";
+  if (modeMark) legend += std::string(legend.empty() ? "" : ", ") + "~ given by a mode";
+  if (!legend.empty()) output += legend + ".\n";
+  if (!listed.empty()) output += '\n' + tasks.render();
+  return output;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

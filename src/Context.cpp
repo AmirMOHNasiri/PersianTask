@@ -401,6 +401,7 @@ std::string configurationDefaults =
     "uda.rcalendar.values=jalali,gregorian\n"
     "schedule.report=important                      # Report shown below today's schedule, or "
     "none\n"
+    "schedule.layout=auto                           # Schedule tables: auto, full or compact\n"
     "dateformat.schedule=A d B Y                    # Date format of the schedule\n"
     "color.schedule.header=bold                     # Color of the schedule's days\n"
     "color.schedule.now=bold green                  # Color of the current slot\n"

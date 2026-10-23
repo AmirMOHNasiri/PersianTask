@@ -8,6 +8,20 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
+## 3.5.0-persiantask.3 (2026-10-23)
+
+### The weekly schedule
+
+- A compact layout for narrow terminals, chosen by width: short day names,
+  no wrapped rows, a dimmed `-` for slots with nothing to do, `soon*` for
+  work from the fallback chain, and the estimates and pace listed once under
+  the table. `task config schedule.layout full` or `compact` picks one for
+  good.
+- In a later week, such as `task schedule week next`, the `Estimate` column
+  says how much of a task is left after the weeks before it, as in
+  `6h (9h), 5h left`, so that free slots after a task's last planned hours
+  are no longer puzzling.
+
 ## 3.5.0-persiantask.2 (2026-10-23)
 
 The schedule now plans by deadlines and the work left, not only by urgency.

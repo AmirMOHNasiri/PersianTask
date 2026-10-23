@@ -41,7 +41,8 @@ const std::vector<HelpEntry>& helpEntries() {
        "planned as if the work planned before it were done.  No task is planned after\n"
        "it is due, unless it is overdue already.  Tasks with an estimate and a due date\n"
        "are paced: their work is spread over the time they have, and the Pace column\n"
-       "says whether each is on track, behind, short of time, or overdue.",
+       "says whether each is on track, behind, short of time, or overdue.  On a narrow\n"
+       "terminal the table is compact (see the schedule.layout setting).",
        {"task schedule week", "task schedule week next", "task schedule week 1405-08-10"}},
 
       {"review", "[prev | next | week:<date>]",

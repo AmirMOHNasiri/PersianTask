@@ -275,6 +275,13 @@ int CmdSchedule::week(const std::vector<std::string>& args, std::string& output)
       << renderTable(assignments, true, planner) << '\n'
       << renderHours(tmpl, assignments, planner) << renderNotes(week, planner);
 
+  // A later week is planned after the ones before it: say so, where it shows.
+  if (std::any_of(assignments.begin(), assignments.end(), [&](auto& a) {
+        return a.task && planner.plannedBefore(*a.task) > 0;
+      }))
+    out << "Note: the weeks before this one are planned first, as if their work were done, so "
+           "'left' is what remains after them.\n";
+
   auto udaProblem = estimateUdaProblem();
   if (!udaProblem.empty()) out << "Note: estimates are ignored.  " << udaProblem << '\n';
   for (auto& warning : estimateWarnings()) out << "Note: " << warning << '\n';
