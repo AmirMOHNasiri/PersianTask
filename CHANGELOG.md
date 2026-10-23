@@ -5,6 +5,9 @@ upstream Taskwarrior version, which its number starts with: `3.5.0-persiantask.1
 is PersianTask's first release, on Taskwarrior 3.5.0. Upstream's own changes
 are in [ChangeLog](ChangeLog).
 
+Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
+and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
+
 ## 3.5.0-persiantask.1 (2026-10-20)
 
 The first release: Taskwarrior 3.5.0 with the Jalali calendar, and a weekly

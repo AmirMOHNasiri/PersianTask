@@ -1,0 +1,36 @@
+# Keeps the notes of the GitHub releases in step with CHANGELOG.md: when it
+# changes, or how notes are made from it (persiantask/release-notes.sh), the
+# notes of every release that has a section in it are rewritten.  Releases
+# themselves are created by the Package workflow, from release tags.
+
+name: Release notes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - CHANGELOG.md
+      - persiantask/release-notes.sh
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for tag in $(gh release list --limit 100 --json tagName --jq '.[].tagName'); do
+            case "$tag" in v*-persiantask.*) ;; *) continue ;; esac
+            if bash persiantask/release-notes.sh "${tag#v}" > notes.md; then
+              gh release edit "$tag" --notes-file notes.md
+              echo "Updated the notes of $tag."
+            fi
+          done
