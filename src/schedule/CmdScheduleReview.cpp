@@ -79,8 +79,10 @@ WeekReview reviewWeek(const Template& tmpl, const State& state, const Datetime& 
   for (auto& category : tmpl.categories)
     review.floors[category.name] = week.floorOf(tmpl, category.name);
 
-  // Planned: slot lengths after this week's changes.
-  Planner planner(tmpl, week.reference(), std::make_shared<Horizon>(tmpl, &state));
+  // Planned: slot lengths after this week's changes, as planned from the
+  // start of the week, like past weeks, so that slots that have ended still
+  // show what they were for.
+  Planner planner(tmpl, week.start, std::make_shared<Horizon>(tmpl, &state));
   auto assignments = planner.plan(week);
   for (auto& entry : planner.minutesByCategory(assignments))
     review.planned[entry.first] = entry.second * 60L;

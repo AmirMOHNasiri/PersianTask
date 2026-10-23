@@ -127,6 +127,7 @@ enum class Source {
   event,     // A one-time event.
   slot,      // The slot's own filter.
   fallback,  // A category in the fallback chain.
+  past,      // A slot of the current week that has ended: nothing is planned in it.
   none       // Nothing matched.
 };
 
@@ -251,7 +252,7 @@ class Planner {
   long planned(const Task&) const;
 
   // After plan(): due dates by which the work due exceeds the time of the
-  // slots that can hold it, counting each slot once.
+  // slots that can hold it, counting each slot once, earliest first.
   std::vector<Overload> overloads;
 
  private:

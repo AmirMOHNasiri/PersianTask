@@ -32,6 +32,8 @@ and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
   review warn when the work due by a date does not fit in the slots before it.
   Template settings: `pacing` (on by default), `max.per-day` (the most time
   one task gets in a day) and `overdue.critical-days` (7 by default).
+- Slots of the current week that have ended take no task and show `past`, so
+  that they no longer use up a task's slots or time for the rest of the day.
 - `task schedule week next` plans the weeks in between first, as if their
   planned work were done, so that work planned this week is not planned again
   next week.

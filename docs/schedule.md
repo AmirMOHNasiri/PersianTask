@@ -90,7 +90,7 @@ Each task's laxity assumes it could have all the slots it reaches, so two tasks 
 Overloaded before Doshanbe 27 Mehr: 12h of work, 10h of slots.
 ```
 
-This is the classic test of earliest-deadline-first scheduling: for each due date, the remaining work of all the tasks due by then must fit in the slots before it that any of them can use, each slot counted once. The first date that fails is shown.
+This is the classic test of earliest-deadline-first scheduling: for each due date, the remaining work of all the tasks due by then must fit in the slots before it that any of them can use, each slot counted once. The first date that fails is shown, with the number of later dates that fail too, as in `(and 2 later dates)`.
 
 Pacing needs nothing new from you: give tasks an estimate and a due date. Tasks without a due date are planned as before, by urgency. To turn pacing off, set `pacing = off` in the template.
 
@@ -138,6 +138,7 @@ Today's slots in time order, with the task each one gets. The current slot is hi
 | `rest (fallback)` | A slot that found nothing to do: its fallback chain ended in `rest`. Its task column says `nothing to do`, and it is dimmed, like an optional slot. |
 | `fixed` | A fixed slot, such as a class, which never takes tasks. |
 | `optional` | An optional slot that found nothing to do. |
+| `past` | A slot of this week that has already ended. Nothing is planned in it: the work done then is the time you tracked. |
 
 Below the slots comes the report named by `schedule.report`, by default `important`: tasks due today or overdue, and tasks with high priority (`priority:H`), however far away their due date is.
 
@@ -301,7 +302,7 @@ The schedule then plans the estimate times `estimate.factor` (a template setting
 
 The time still to plan is the planned time minus the time already tracked on the task with `task start` and `task stop`. Once time is tracked, the column shows what is left, as in `4h (6h), 2.5h left`, and a task past its planned time shows `over`.
 
-A task with time left takes slots, most urgent first, until that time is covered. Only the part of a slot after the current time counts: earlier slots this week still show their task, but do not use up its time, which is either tracked already or gone. A task with no estimate, or past it, takes at most `unestimated.per-day` slots a day.
+A task with time left takes slots, most urgent first, until that time is covered. Slots of this week that have already ended take no task, and show `past`: the work done in them is the time you tracked, so they never use up a task's time, its slots for the day, or `max.per-day`. A slot under way counts only from the current time. (For a category's hours, an ended slot still counts for its own category, if that has a floor, so that the week's hours do not drop as it passes.) A task with no estimate, or past it, takes at most `unestimated.per-day` slots a day.
 
 ### The estimate UDA
 

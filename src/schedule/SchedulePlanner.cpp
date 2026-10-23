@@ -500,6 +500,13 @@ std::string Planner::categoryOf(const Task& task) {
 
 ////////////////////////////////////////////////////////////////////////////////
 std::string Planner::accountingCategory(const Assignment& assignment) {
+  // An ended slot counts for its own category, if that has a floor, as if
+  // its own work was done, so that a week's hours do not drop as it passes.
+  if (assignment.source == Source::past) {
+    auto category = _template.category(assignment.via);
+    return category && category->accounting && category->floor >= 0 ? category->name : "";
+  }
+
   if (!assignment.task) return "";
 
   // A slot's own work counts for its category, if that is a subject with a
@@ -711,10 +718,7 @@ void Planner::computePaces(const Week& week) {
     long slots = 0;
     for (auto& u : usable)
       if (u.due <= by) slots += std::max<time_t>(0, std::min(u.to, by) - u.from);
-    if (total > slots + 60) {
-      overloads.push_back({by, total, slots});
-      break;  // The first one says enough.
-    }
+    if (total > slots + 60) overloads.push_back({by, total, slots});
   }
 }
 
@@ -739,8 +743,16 @@ std::vector<Assignment> Planner::plan(const Week& week) {
   overloads.clear();
   notes.clear();
 
-  auto takesTasks = [](const Instance& instance) {
-    return instance.slot->kind != Kind::fixed && instance.slot->kind != Kind::rest;
+  // Slots that have ended before the reference time take no task: what was
+  // done in them is tracked time, not plans, and they must not use up a
+  // task's slots or time for the day.
+  auto reference = _reference.toEpoch();
+  auto ended = [&](const Instance& instance) {
+    return instance.day.toEpoch() + instance.end * 60L <= reference;
+  };
+  auto takesTasks = [&](const Instance& instance) {
+    return instance.slot->kind != Kind::fixed && instance.slot->kind != Kind::rest &&
+           !ended(instance);
   };
   auto categoryOfSlot = [](const Instance& instance) {
     return instance.modeCategory.empty() ? instance.slot->category : instance.modeCategory;
@@ -757,6 +769,10 @@ std::vector<Assignment> Planner::plan(const Week& week) {
       assignment.via = instance.slot->category;
     } else if (instance.slot->kind == Kind::rest)
       assignment.source = Source::rest;
+    else if (ended(instance)) {
+      assignment.source = Source::past;
+      assignment.via = categoryOfSlot(instance);
+    }
     assignments.push_back(assignment);
   }
 
@@ -812,7 +828,8 @@ std::vector<Assignment> Planner::plan(const Week& week) {
   if (_template.pacing) {
     std::map<std::string, long> ownMinutes, given;
     for (auto& assignment : assignments)
-      if (takesTasks(*assignment.instance) && !assignment.instance->event)
+      if (!assignment.instance->event && assignment.instance->slot->kind != Kind::fixed &&
+          assignment.instance->slot->kind != Kind::rest)
         ownMinutes[categoryOfSlot(*assignment.instance)] += assignment.instance->minutes();
 
     for (auto& task : paced) {

@@ -21,6 +21,9 @@ ROOT = os.path.join(HERE, "..")
 
 # Saturday, 1405-07-25 (2026-10-17), at noon.
 NOW = "rc.schedule.now:2026-10-17T12:00:00"
+# Before any slot of that Shanbe, for tests about planning, not about slots
+# that have ended.
+EARLY = "rc.schedule.now:2026-10-17T06:00:00"
 
 
 def write_template(task, text):
@@ -278,12 +281,12 @@ def test_fallback(task):
     task.out("add", "OS2", "project:os")
     task.out("add", "DS1", "project:ds")
     task.out("add", "T1", "+term")
-    task.out("add", "S1", "due:2026-10-19T12:00:00")  # Two days after NOW.
+    task.out("add", "S1", "due:2026-10-19T12:00:00")  # Two days after EARLY.
     task.out("add", "Waiting", "project:ds", "wait:now+30d")
     task.out("add", "Blocker")
     task.out("add", "Blocked", "project:ds", "priority:H", "depends:7")
 
-    found = slots(task.out(NOW, "schedule", "week"))
+    found = slots(task.out(EARLY, "schedule", "week"))
     check("The earliest slot gets the most urgent task", found.get("a-os", ("", ""))[1], "OS1")
     check("A task fills one slot a day", found.get("b-os", ("", ""))[1], "OS2")
     check("A slot takes its own category's task", found.get("c-ds"), ("3", "DS1", "ds"))
@@ -303,7 +306,7 @@ def test_fallback_order(task):
                    .replace("08:00-09:00  a-os     study   os", "08:00-09:00  a-os     study   review"))
     task.out("add", "OS1", "project:os")
 
-    found = slots(task.out(NOW, "schedule", "week"))
+    found = slots(task.out(EARLY, "schedule", "week"))
     check("A later slot keeps its own category's task", found.get("b-os"), ("1", "OS1", "os"))
     check("An earlier slot's fallback finds nothing, which is not a rest slot",
           found.get("a-os"), ("", "nothing to do", "rest (fallback)"))
@@ -315,7 +318,7 @@ def test_context_ignored(task):
     task.out("context", "define", "dsonly", "project:ds")
     task.out("context", "dsonly")
 
-    found = slots(task.out(NOW, "schedule", "week"))
+    found = slots(task.out(EARLY, "schedule", "week"))
     check("Slots ignore the active context", found.get("a-os", ("", ""))[1], "OS1")
 
 
@@ -332,12 +335,12 @@ soon  -  due.after:now due.before:now+7d
 [shanbe]
 09:00-10:00  sat-buf  buffer  -
 """)
-    task.out("add", "ThisWeek", "due:2026-10-20")   # Within 7 days of NOW.
+    task.out("add", "ThisWeek", "due:2026-10-20")   # Within 7 days of EARLY.
     task.out("add", "NextWeek", "due:2026-10-28")   # Within 7 days of next Shanbe.
     task.out("add", "LastWeek", "due:2026-10-13")   # Within 7 days of last Shanbe.
 
     for args, expected in [([], "ThisWeek"), (["next"], "NextWeek"), (["prev"], "LastWeek")]:
-        found = slots(task.out(NOW, "schedule", "week", *args))
+        found = slots(task.out(EARLY, "schedule", "week", *args))
         check("Filters in week {} are relative to that week".format(" ".join(args) or "(this)"),
               found.get("sat-buf", ("", ""))[1], expected)
 
@@ -357,7 +360,7 @@ other  -   project:nothing
     task.out("add", "with other words inside")
     task.out("add", "two and words apart")
 
-    out = task.out(NOW, "schedule", "week")
+    out = task.out(EARLY, "schedule", "week")
     check_true("A category filter with a quoted phrase", "has two words here" in out
                and "two and words apart" not in out, out)
     check_true("A slot filter with a quoted phrase", "with other words inside" in out, out)
@@ -540,29 +543,29 @@ def test_skip_and_assign(task):
     task.out("add", "DS1", "project:ds")
     task.out("add", "Soon1", "due:2026-10-19")
 
-    task.out(NOW, "schedule", "skip", "b-ds")
-    found = slots(task.out(NOW, "schedule", "week"))
+    task.out(EARLY, "schedule", "skip", "b-ds")
+    found = slots(task.out(EARLY, "schedule", "week"))
     check("A skipped slot goes down its fallback chain", found.get("b-ds"),
           ("3", "Soon1", "soon (fallback), skipped"))
     check("Another slot takes the skipped slot's task", found.get("d-ds", ("", ""))[1], "DS1")
 
-    task.out(NOW, "schedule", "assign", "b-ds", "1")
-    found = slots(task.out(NOW, "schedule", "week"))
+    task.out(EARLY, "schedule", "assign", "b-ds", "1")
+    found = slots(task.out(EARLY, "schedule", "week"))
     check("assign pins a task, and replaces a skip", found.get("b-ds"), ("1", "OS1", "assigned"))
 
-    task.out(NOW, "schedule", "assign", "e-os", "due.before:2026-10-25")
-    found = slots(task.out(NOW, "schedule", "week"))
+    task.out(EARLY, "schedule", "assign", "e-os", "due.before:2026-10-25")
+    found = slots(task.out(EARLY, "schedule", "week"))
     check("assign pins a filter", found.get("e-os"), ("3", "Soon1", "assigned"))
 
-    task.out(NOW, "schedule", "skip", "b-ds")
-    found = slots(task.out(NOW, "schedule", "week"))
+    task.out(EARLY, "schedule", "skip", "b-ds")
+    found = slots(task.out(EARLY, "schedule", "week"))
     check_true("skip replaces an assign", "skipped" in found.get("b-ds", ("", "", ""))[2], found)
 
     for args, text in [(["c-fixed", "1"], "fixed slot"), (["f-rest", "1"], "rest slot"),
                        (["a-os", "99"], "no task 99"), (["a-os", "( project:os"], "Mismatched")]:
-        code, out, err = task.run(NOW, "schedule", "assign", *args)
+        code, out, err = task.run(EARLY, "schedule", "assign", *args)
         check_true("assign {} fails: {}".format(" ".join(args), text), code != 0 and text in err, err)
-    code, out, err = task.run(NOW, "schedule", "skip", "c-fixed")
+    code, out, err = task.run(EARLY, "schedule", "skip", "c-fixed")
     check_true("skip of a fixed slot fails", code != 0 and "fixed slot" in err, err)
 
 
@@ -572,12 +575,12 @@ def test_precedence(task):
     task.out("add", "OS1", "project:os", "priority:H")
     task.out("add", "DS1", "project:ds")
 
-    found = slots(task.out(NOW, "schedule", "week"))
+    found = slots(task.out(EARLY, "schedule", "week"))
     check("The template gives a-os its category's task", found.get("a-os", ("", ""))[1], "OS1")
 
-    task.out(NOW, "schedule", "assign", "a-os", "2")
-    task.out(NOW, "schedule", "swap", "a-os", "d-ds")
-    out = task.out(NOW, "schedule", "week")
+    task.out(EARLY, "schedule", "assign", "a-os", "2")
+    task.out(EARLY, "schedule", "swap", "a-os", "d-ds")
+    out = task.out(EARLY, "schedule", "week")
     check("A moved slot keeps its assigned task", slots(out).get("a-os"), ("2", "DS1", "assigned"))
     check("A moved slot is at its new time", places(out).get("a-os"), ("Shanbe", "14:00-15:00", True))
 
@@ -661,17 +664,17 @@ def test_undo_and_log(task):
 def test_dangling_references(task):
     write_template(task, EDIT)
     task.out("add", "OS1", "project:os")
-    task.out(NOW, "schedule", "assign", "a-os", "1")
-    task.out(NOW, "schedule", "skip", "b-ds")
+    task.out(EARLY, "schedule", "assign", "a-os", "1")
+    task.out(EARLY, "schedule", "skip", "b-ds")
     task.out("1", "done")
     write_template(task, EDIT.replace("09:00-10:00  b-ds     study  ds\n", ""))
 
-    code, out, _ = task.run(NOW, "schedule", "week")
+    code, out, _ = task.run(EARLY, "schedule", "week")
     check("A dangling change does not break the week", code, 0)
     check_true("The week notes a change to a removed slot", "'b-ds'" in out and "Note:" in out, out)
     check_true("The week notes an assigned task that is done", "assigned to a-os" in out, out)
 
-    code, out, _ = task.run(NOW, "schedule", "check")
+    code, out, _ = task.run(EARLY, "schedule", "check")
     check_true("check reports dangling changes", code == 0 and "'b-ds'" in out and "a-os" in out, out)
 
 
@@ -746,10 +749,10 @@ ds    -   project:ds
     task.out("add", "R1", "project:res")
     task.out("add", "D1", "project:ds")
 
-    check("Planned hours follow the template", planned(task.out(NOW, "schedule", "week")),
+    check("Planned hours follow the template", planned(task.out(EARLY, "schedule", "week")),
           {"res": "3h", "ds": "1.5h"})
-    task.out(NOW, "schedule", "swap", "sat-res", "sat-ds")
-    check("Planned hours follow a swap", planned(task.out(NOW, "schedule", "week")),
+    task.out(EARLY, "schedule", "swap", "sat-res", "sat-ds")
+    check("Planned hours follow a swap", planned(task.out(EARLY, "schedule", "week")),
           {"res": "1.5h", "ds": "3h"})
 
 
@@ -831,9 +834,9 @@ os   -   project:os
 """)
     task.out("add", "Big", "project:os", "estimate:2h")
     found = slots(task.out(NOW, "schedule", "week"))  # NOW is 12:00.
-    check("Past slots show the task but do not use up its estimate",
+    check("An ended slot takes no task, and does not use up the estimate",
           [found.get(s, ("", ""))[1] for s in "abcd"],
-          ["Big", "Big", "Big", "nothing to do"])
+          ["", "Big", "Big", "nothing to do"])
 
 
 def test_estimate_uda(task):
@@ -843,7 +846,7 @@ def test_estimate_uda(task):
     code, out, _ = task.run("rc.uda.estimate.type:numeric", "schedule", "check")
     check_true("check reports an estimate UDA that is not a duration",
                code != 0 and "as a numeric" in out and "schedule.estimate.uda" in out, out)
-    out = task.out(NOW, "rc.uda.estimate.type:numeric", "schedule", "week")
+    out = task.out(EARLY, "rc.uda.estimate.type:numeric", "schedule", "week")
     check_true("The week notes that estimates are ignored", "estimates are ignored" in out, out)
 
     code, out, _ = task.run("rc.schedule.estimate.uda:effort", "schedule", "check")
@@ -851,7 +854,7 @@ def test_estimate_uda(task):
                code != 0 and "uda.effort.type duration" in out, out)
 
     task.out("rc.uda.effort.type:duration", "add", "E2", "project:os", "effort:1h")
-    out = task.out(NOW, "rc.uda.effort.type:duration", "rc.schedule.estimate.uda:effort",
+    out = task.out(EARLY, "rc.uda.effort.type:duration", "rc.schedule.estimate.uda:effort",
                    "schedule", "week")
     check_true("Estimates come from the configured UDA", "1h (1h)" in out and "2h (2h)" not in out, out)
 
@@ -1053,7 +1056,7 @@ other  -   +other
     task.out("add", "Misc", "+misc")
     task.out("add", "Other", "+other")
 
-    hours = planned(task.out(NOW, "schedule", "week"))
+    hours = planned(task.out(EARLY, "schedule", "week"))
     check("Planned hours count for the subject, not the fallback-style category", hours,
           {"os": "2h", "other": "1h"})
 
@@ -1428,10 +1431,11 @@ def test_due_cutoff(task):
     # before the free slot (14:00): one slot a day for a task with no estimate.
     check("Own category: until the due day, then nothing (S comes by fallback)",
           column(found, [d + "-x1" for d in WEEK]),
-          ["X", "X", "X", "S", "nothing to do", "nothing to do", "nothing to do"])
+          ["", "X", "X", "S", "nothing to do", "nothing to do", "nothing to do"])
+    # Shanbe's x1 slot has ended, so X takes the free slot that afternoon.
     check("Fallback: until the due day, then nothing",
           column(found, [d + "-free" for d in WEEK]),
-          ["S", "S", "S", "nothing to do", "nothing to do", "nothing to do", "nothing to do"])
+          ["X", "S", "S", "nothing to do", "nothing to do", "nothing to do", "nothing to do"])
 
 
 def test_due_next_week(task):
@@ -1457,7 +1461,7 @@ def test_overdue(task):
     found = slots(out)
     check("An overdue task is planned all week, and marked",
           [found.get(d + "-x1") for d in ("sat", "fri")],
-          [("1", "O", "overdue x"), ("1", "O", "overdue x")])
+          [("", "", "past"), ("1", "O", "overdue x")])
     check("A task assigned after its due is marked", found.get("thu-free"),
           ("2", "X", "after due assigned"))
     check_true("The Pace column", "Pace" in out, out)
@@ -1491,7 +1495,8 @@ def test_chained_weeks(task):
     write_template(task, CHAIN)
     task.out("add", "E", "project:x", "estimate:16h")
     found = slots(task.out(NOW, "schedule", "week"))
-    check("This week: every slot", column(found, [d + "-x" for d in WEEK]), ["E"] * 7)
+    check("This week: every slot that has not ended", column(found, [d + "-x" for d in WEEK]),
+          [""] + ["E"] * 6)
     # This week plans 12h (Shanbe's slot is past), so 4h are left: two slots.
     found = slots(task.out(NOW, "schedule", "week", "next"))
     check("Next week: only what is left", column(found, [d + "-x" for d in WEEK]),
@@ -1543,14 +1548,14 @@ def test_pacing_spreads(task):
     # Shanbe's slot is past.  18h over about 38h of its slots: 3 of this
     # week's 6 future slots.
     check("This week: P takes its share first, then Q", days(found, "p"),
-          ["P", "P", "P", "P", "Q", "Q", "Q"])
+          ["", "P", "P", "P", "Q", "Q", "Q"])
     check_true("P is on track", "on track" in found["sun-p"][2], found["sun-p"])
     found = slots(task.out(NOW, "schedule", "week", "next"))
     check("Next week: its share again", days(found, "p"), ["P", "P", "P", "Q", "Q", "Q", "Q"])
 
     write_template(task, PACE.replace("fallback = soon rest", "fallback = soon rest\npacing = off"))
     out = task.out(NOW, "schedule", "week")
-    check("pacing = off: by urgency, as before", days(slots(out), "p"), ["Q"] * 7)
+    check("pacing = off: by urgency, as before", days(slots(out), "p"), [""] + ["Q"] * 6)
     check_true("pacing = off: no Pace column", "Pace" not in out, out)
 
 
@@ -1654,8 +1659,9 @@ proj  -  project:proj
     write_template(task, template)
     task.out("add", "L", "project:proj", "estimate:20h")
     found = slots(task.out(NOW, "schedule", "week"))
+    # Shanbe's slot a has ended, so b is that day's first.
     check("At most 2h of a task a day", (days(found, "a"), days(found, "b")),
-          (["L"] * 7, ["nothing to do"] * 7))
+          ([""] + ["L"] * 6, ["L"] + ["nothing to do"] * 6))
 
     # A critical task is not limited: 12h due Doshanbe, with 10h of slots.
     task.out("add", "K", "project:proj", "due:1405-07-27T23:59", "estimate:12h")
@@ -1692,6 +1698,43 @@ def test_pacing_settings(task):
         check_true("check reports: " + message, code != 0 and message in out, out + err)
 
 
+def test_ended_slots(task):
+    """In the current week, a slot that has ended takes no task: it does not
+    use up the day's slots or max.per-day, nor count as work done."""
+    write_template(task, "[settings]\nmax.per-day = 1\n[categories]\nproj  2  project:proj\n"
+                         "[shanbe]\n08:00-09:00 a study proj\n14:00-15:00 b study proj\n"
+                         "15:00-16:00 c study proj\n")
+    task.out("add", "U", "project:proj")
+    found = slots(task.out(NOW, "schedule"))
+    check("The morning slot has ended: past, with no task", found.get("a"), ("", "", "past"))
+    check("A task with no estimate still gets the afternoon", found.get("b"), ("1", "U", "proj"))
+
+    task.out("1", "done")
+    task.out("add", "L", "project:proj", "estimate:10h")
+    out = task.out(NOW, "schedule")
+    found = slots(out)
+    check("max.per-day is not used up by the ended slot", (found["b"][1], found["c"][1]),
+          ("L", "nothing to do"))
+    check_true("Nothing counts as done: 10h left", "10h (10h)" in found["b"][2], found["b"])
+    out = task.out(NOW, "schedule", "week")
+    check_true("The ended slot still counts for its category's hours", "Planned: proj 2h" in out,
+               out)
+
+
+def test_overload_count(task):
+    """The first overloaded date, and how many later ones."""
+    write_template(task, PACE.replace("14:00-16:00  o  study  os", "13:00-15:00  q  study  proj"))
+    task.out("add", "A", "project:proj", "due:1405-07-27T23:59", "estimate:12h")
+    task.out("add", "B", "project:proj", "due:1405-07-28T23:59", "estimate:6h")
+    task.out("add", "C", "project:proj", "due:1405-07-29T23:59", "estimate:4h")
+    out = task.out(NOW, "schedule", "week")
+    # By Doshanbe 12h for 10h of slots, by Seshanbe 18h for 14h, by
+    # Chaharshanbe 22h for 18h.
+    check_true("The first date, and the number of later ones",
+               "Overloaded before Doshanbe 27 Mehr: 12h of work, 10h of slots (and 2 later dates)."
+               in out, out)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -1710,4 +1753,5 @@ if __name__ == "__main__":
                         test_due_next_week, test_overdue, test_borrow_due, test_chained_weeks,
                         test_due_change, test_pacing_spreads, test_pace_and_overload,
                         test_critical, test_behind_through_fallback, test_max_per_day,
-                        test_overdue_grace, test_pacing_settings, test_help], fresh=True))
+                        test_overdue_grace, test_pacing_settings, test_ended_slots,
+                        test_overload_count, test_help], fresh=True))

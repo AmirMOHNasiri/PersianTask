@@ -194,6 +194,9 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
       case Source::fallback:
         from = assignment.via + " (fallback)";
         break;
+      case Source::past:
+        from = "past";
+        break;
       case Source::none:
         description = slot.optional ? "" : "nothing to do";
         from = slot.optional ? "optional" : "-";
@@ -245,10 +248,15 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
 ////////////////////////////////////////////////////////////////////////////////
 std::string renderOverloads(const Planner& planner) {
   std::stringstream out;
-  for (auto& overload : planner.overloads)
-    out << format("Overloaded before {1}: {2} of work, {3} of slots.\n",
-                  describeDay(Datetime(overload.due)), quarterHours(overload.work),
-                  quarterHours(overload.capacity));
+  // The first date, and how many more.
+  if (!planner.overloads.empty()) {
+    auto& first = planner.overloads.front();
+    auto more = planner.overloads.size() - 1;
+    out << format("Overloaded before {1}: {2} of work, {3} of slots{4}.\n",
+                  describeDay(Datetime(first.due)), quarterHours(first.work),
+                  quarterHours(first.capacity),
+                  more == 0 ? "" : format(" (and {1} later {2})", more, more == 1 ? "date" : "dates"));
+  }
   return out.str();
 }
 
