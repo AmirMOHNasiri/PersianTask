@@ -162,6 +162,7 @@ Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project              te
 | `task schedule assign <slot> <task \| filter>` | Pins work to a slot, this week |
 | `task schedule reset <slot \| week>` | Undoes this week's changes |
 | `task schedule borrow <task> <hours>` | Gives a task more time this week, from the slots the template allows |
+| `task schedule left <task> <hours>` | Corrects a wrong estimate: the hours the task still needs |
 | `task schedule review [last]` | Weekly review: planned and tracked hours, floors, the buffer, deadlines |
 | `task schedule mode start <name> ...` | A mode, such as exam season, that changes the week for a while |
 | `task schedule event add <title> <date> <HH:MM-HH:MM>` | A one-time appointment |
@@ -177,7 +178,7 @@ task schedule swap sat-ds mon-arch
 
 Changes apply to one week, and `task schedule undo` takes them back. Note that `task undo` does not undo schedule changes, and that the schedule is kept in its own files, so it does not sync with your tasks.
 
-Give tasks an estimate, such as `task add Paper project:research estimate:4h`, and the schedule plans enough slots for it, with a safety factor (1.5 in the example); time tracked with `task start` and `task stop` is taken off, so track your work. With a due date as well, the work is spread over the weeks until then, a task that falls behind gets more slots, and the schedule warns when the work due by a date no longer fits in the slots before it (see [Pacing](../docs/schedule.md#pacing)). When a task needs more, `task schedule borrow 12 2` takes two more hours from the slots the template lets it borrow, never below a category's weekly floor.
+Give tasks an estimate, such as `task add Paper project:research estimate:4h`, and the schedule plans enough slots for it, with a safety factor (1.5 in the example); time tracked with `task start` and `task stop` is taken off, so track your work. `task add` asks for the estimate when a task comes into one of your categories without one, a category can have a default (`estimate:3h`), and `task schedule left 12 3` corrects an estimate that turned out wrong. With a due date as well, the work is spread over the weeks until then, a task that falls behind gets more slots, and the schedule warns when the work due by a date no longer fits in the slots before it (see [Pacing](../docs/schedule.md#pacing)). When a task needs more, `task schedule borrow 12 2` takes two more hours from the slots the template lets it borrow, never below a category's weekly floor.
 
 Once a week, `task schedule review` compares planned and tracked hours per category, warns about categories below their weekly floor two weeks running and about a buffer that keeps filling up, and lists the deadlines of this week and the next.
 
@@ -234,6 +235,7 @@ Recurring tasks need one more thing, since "every month" means different dates i
 - `src/commands/CmdCalendar.cpp`, `src/recur.cpp`, `src/Task.cpp`, `src/Context.cpp`, `src/commands/CmdConfig.cpp`, `src/commands/CmdShow.cpp`, `src/columns/ColTypeDate.cpp`: the calendar view, recurrence, the settings, and weeks starting on Saturday.
 - `src/schedule/`: the weekly schedule, and `examples/schedule/student-week`, the example template.
 - `src/CLI2.cpp`: a hook so that plain `task` can show the schedule.
+- `src/commands/CmdAdd.cpp`, `src/commands/CmdModify.cpp`: one line each, so that adding a task to a schedule category asks for its estimate.
 - `persiantask/`: the tests, and the scripts that build packages and merge upstream updates.
 - `.github/workflows/persiantask-*.yml`: runs the tests, and merges upstream every week.
 - `pkg/arch/PKGBUILD`: the Arch Linux package, and `pkg/arch/persiantask.asc`, the key that signs the prebuilt packages.

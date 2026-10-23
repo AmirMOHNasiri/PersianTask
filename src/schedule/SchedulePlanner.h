@@ -133,8 +133,10 @@ enum class Source {
 
 // A task's estimate, in seconds.  Planned is the estimate times the
 // template's estimate.factor, and remaining is planned minus tracked time.
+// A task with no estimate of its own may have its category's default.
 struct Effort {
   long estimate{-1};  // -1 for none.
+  bool defaulted{false};  // The estimate is its category's default.
   long planned{0};
   long tracked{0};
   long remaining{0};
@@ -177,7 +179,8 @@ class Horizon {
 
   const Week& week(const Datetime& start);
 
-  // Pending tasks with an estimate and a due date.
+  // Pending tasks with a due date, which are paced if they have an estimate,
+  // or a category's default estimate.
   const std::vector<Task>& pool() const { return _pool; }
 
   // Indexes into the pool of the tasks matching the filter.
@@ -257,6 +260,7 @@ class Planner {
 
  private:
   long left(const Task&);
+  long defaultEstimate(const Task&);
   void computePaces(const Week&);
   bool critical(const std::string& uuid) const;
   bool contains(const std::string& filter, const std::string& uuid);
@@ -296,6 +300,11 @@ class WeekPlan {
   Planner planner;
   std::vector<Assignment> assignments;
 };
+
+// The tasks of the pool that match the filter, as of the reference time, in
+// the pool's order, whatever the active context.
+std::vector<Task> filterTasks(const std::string& filter, const std::vector<Task>& pool,
+                              time_t reference);
 
 // The current time.  The setting rc.schedule.now exists only for the tests,
 // and is deliberately not documented.

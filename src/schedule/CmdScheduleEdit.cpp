@@ -17,6 +17,7 @@
 
 #include <CmdSchedule.h>
 #include <Context.h>
+#include <Duration.h>
 #include <ScheduleEffort.h>
 #include <ScheduleHelp.h>
 #include <SchedulePlanner.h>
@@ -811,6 +812,59 @@ int CmdSchedule::log(std::string& output) {
     out << Datetime(i->when).toString("Y-M-D H:N") << "  " << i->description << '\n';
   out << "\n'task schedule undo' undoes the most recent change, at the top.\n";
   output = out.str();
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// left <task> <hours>
+//
+// Corrects a wrong estimate: sets it so that the work still to plan, the
+// estimate times estimate.factor less the time tracked, is the given hours:
+//   estimate = (hours + tracked) / factor
+int CmdSchedule::left(const std::vector<std::string>& args, std::string& output) {
+  // 'task schedule' opens the task database read-only, since its own changes
+  // are kept in its own files.  This one changes a task, so it reopens it for
+  // writing, before reading anything from it.
+  auto& context = Context::getContext();
+  context.tdb2.open_replica(context.data_dir._data, !context.config.getBoolean("exit.on.missing.db"),
+                            true);
+
+  Template tmpl;
+  loadValidTemplate(tmpl);
+  auto problem = estimateUdaProblem();
+  if (!problem.empty()) throw problem;
+
+  auto& first = args[0];
+  Task task;
+  bool found = !first.empty() && std::all_of(first.begin(), first.end(), ::isdigit)
+                   ? Context::getContext().tdb2.get(std::stoi(first), task)
+                   : looksLikeUuid(first) && Context::getContext().tdb2.get(first, task);
+  if (!found) throw format("There is no task {1}.", first);
+  if (task.getStatus() != Task::pending && task.getStatus() != Task::waiting)
+    throw format("Task {1} is not pending.", first);
+
+  auto hours = parseHours(args[1]);
+  if (hours <= 0)
+    throw format("'{1}' is not a number of hours, such as 3 or 1.5h.  When the task is finished, "
+                 "use 'task {2} done'.",
+                 args[1], first);
+
+  auto tracked = schedule::tracked(task);
+  auto estimate = static_cast<long>((hours + tracked) / tmpl.estimateFactor + 0.5);
+  estimate = (estimate + 30) / 60 * 60;  // Whole minutes.
+  auto previous = schedule::estimate(task);
+  task.set(estimateUda(), Duration(estimate).formatISO());
+  Context::getContext().tdb2.modify(task);
+
+  output = format(
+      "Task {1} '{2}': estimate {3}, so that {4} {5} left: {3} times {6} (estimate.factor) is {7}, "
+      "less {8} tracked.{9}\n",
+      first, task.get("description"), formatHours(estimate), formatHours(hours),
+      hours == 3600 ? "is" : "are", (std::ostringstream() << tmpl.estimateFactor).str(),
+      formatHours(static_cast<long>(estimate * tmpl.estimateFactor + 0.5)),
+      tracked > 0 ? formatHours(tracked) : "0h",
+      previous > 0 ? format("  It was {1}; 'task undo' restores it.", formatHours(previous))
+                   : "");
   return 0;
 }
 

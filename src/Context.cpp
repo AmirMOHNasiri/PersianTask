@@ -391,6 +391,8 @@ std::string configurationDefaults =
     "schedule.wake=06:00                            # Start of the day, 'wake' in templates\n"
     "schedule.sleep=24:00                           # End of the day, 'sleep' in templates\n"
     "schedule.estimate.uda=estimate                 # UDA holding task estimates, a duration\n"
+    "schedule.estimate.ask=on                       # Ask for an estimate in 'task add', on a "
+    "terminal\n"
     "uda.estimate.type=duration                     # Estimated time for a task, such as 2h\n"
     "uda.estimate.label=Estimate\n"
     "uda.rcalendar.type=string                      # Calendar of a recurring task's months and "

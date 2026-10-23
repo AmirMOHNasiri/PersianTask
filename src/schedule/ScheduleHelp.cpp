@@ -105,6 +105,15 @@ const std::vector<HelpEntry>& helpEntries() {
        "floor.  Shows which slots were taken; 'task schedule undo' gives them back.",
        {"task schedule borrow 12 2", "task schedule borrow 12 1.5h next"}},
 
+      {"left", "<task> <hours>",
+       "Corrects a task's estimate: the hours it still needs",
+       "When a task needs more (or less) than its estimate says, give the hours it\n"
+       "still needs.  The estimate becomes (hours + time tracked) / estimate.factor,\n"
+       "so that the time left to plan is those hours.  A task past its estimate is\n"
+       "marked 'over estimate' until then.  'task undo' undoes it, like any change to\n"
+       "a task.",
+       {"task schedule left 12 3", "task schedule left 12 90min"}},
+
       {"mode", "[list] | start <name> <values...> | stop <m<N> | name>",
        "Modes, such as exam season, which change the week for a while",
        "A mode is defined in the template: which slots it gives to which category,\n"

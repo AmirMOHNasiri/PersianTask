@@ -10,6 +10,7 @@ results do not depend on the day they run or on the user's data.
 import datetime
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -810,7 +811,8 @@ os   -   project:os
 
     task.out("1", "modify", "estimate:30min")
     found = slots(task.out(NOW, "schedule", "week"))
-    check("A task past its estimate says so", found.get("a", ("", "", ""))[2], "30min (45min), over os")
+    check("A task past its estimate says so", found.get("a", ("", "", ""))[2],
+          "30min (45min), over estimate os")
     check("A task past its estimate takes one slot a day",
           [found.get(s, ("", ""))[1] for s in "abc"],
           ["Worked", "nothing to do", "nothing to do"])
@@ -1735,6 +1737,150 @@ def test_overload_count(task):
                in out, out)
 
 
+def run_tty(task, args, answers):
+    """Runs task on a terminal (a pty), typing the answers, and returns its
+    exit code and everything it wrote."""
+    import pty
+    import select
+    master, slave = pty.openpty()
+    process = subprocess.Popen([task.binary] + list(args), env=task.env, cwd=task.dir,
+                               stdin=slave, stdout=slave, stderr=slave)
+    os.close(slave)
+    for answer in answers:
+        os.write(master, (answer + "\n").encode())
+    output = b""
+    while True:
+        ready, _, _ = select.select([master], [], [], 20)
+        if not ready:
+            break
+        try:
+            data = os.read(master, 4096)
+        except OSError:  # The terminal closes when task exits.
+            break
+        if not data:
+            break
+        output += data
+    process.wait()
+    os.close(master)
+    return process.returncode, output.decode(errors="replace")
+
+
+ESTIMATES = """
+[settings]
+estimate.factor = 1.5
+fallback = rest
+
+[categories]
+os    -  project:os    estimate:4h
+misc  -  project:misc
+
+[everyday]
+14:00-16:00  o  study  os
+16:00-17:00  m  study  misc
+"""
+
+
+def test_default_estimates(task):
+    """A category's estimate: option is the estimate of its tasks with none."""
+    write_template(task, ESTIMATES)
+    task.out("add", "Default", "project:os", "priority:H")
+    task.out("add", "Own", "project:os", "estimate:2h")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check_true("Shown as the default", "4h default (6h)" in found["sat-o"][2], found["sat-o"])
+    # 6h of planned time: the default task takes three 2h slots, like one
+    # with an estimate; then the other task gets its 3h.
+    check("Planned like an estimate", days(found, "o"),
+          ["Default", "Default", "Default", "Own", "Own", "nothing to do", "nothing to do"])
+    check_true("Its own estimate wins", "2h (3h)" in found["tue-o"][2], found["tue-o"])
+    check_true("Not stored in the task", "estimate" not in task.export("Default")[0], "")
+
+    task.out("add", "Due", "project:os", "due:1405-07-27T23:59")
+    out = task.out(NOW, "schedule", "week")
+    check_true("With a due date, a default estimate is paced", "Pace" in out, out)
+
+    write_template(task, ESTIMATES.replace("estimate:4h", "estimate:lots"))
+    code, out, err = task.run(NOW, "schedule", "check")
+    check_true("check reports a wrong estimate option",
+               code != 0 and "'estimate:lots' is not an estimate" in out, out + err)
+
+
+def test_over_estimate_and_left(task):
+    """A task past its estimate says so, and 'left' corrects the estimate:
+    (hours + tracked) / factor."""
+    write_template(task, ESTIMATES)
+    task.out("add", "Worked", "project:os", "estimate:1h")
+    task.out("1", "start")
+    task.out("1", "modify", "start:now-2h")
+    task.out("1", "stop")
+    out = task.out(NOW, "schedule", "week")
+    found = slots(out)
+    check_true("Over estimate in the week", "1h (1.5h), over estimate" in found["sat-o"][2],
+               found["sat-o"])
+    check_true("A note offers 'left'",
+               "Task 1 'Worked' is over its estimate: run 'task schedule left 1 <hours>'" in out,
+               out)
+    check_true("... in today's schedule too", "over its estimate" in task.out(NOW, "schedule"), "")
+
+    # 2h tracked, 3h more needed, factor 1.5: (3 + 2) / 1.5 = 3h20min.
+    out = task.out(NOW, "schedule", "left", "1", "3")
+    check_true("left says what it did",
+               "estimate 3.33h, so that 3h are left: 3.33h times 1.5 (estimate.factor) is 5h, "
+               "less 2h tracked.  It was 1h" in out, out)
+    check("The stored estimate", task.export("1")[0]["estimate"], "PT3H20M")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check_true("3h left now", "3.33h (5h), 3h left" in found["sat-o"][2], found["sat-o"])
+
+    task.out("undo")
+    check("task undo restores it", task.export("1")[0]["estimate"], "PT1H")
+
+    for args, text in [(["1", "0"], "is not a number of hours"), (["9", "2"], "no task 9"),
+                       (["1"], "Usage: task schedule left")]:
+        code, out, err = task.run(NOW, "schedule", "left", *args)
+        check_true("left fails: " + text, code != 0 and text in err, err)
+
+
+def test_ask_estimate(task):
+    """On a terminal, 'task add' and 'task modify' ask for an estimate when a
+    task comes into a category without one; never otherwise."""
+    write_template(task, ESTIMATES)
+    code, out = run_tty(task, ["add", "First", "project:os"], ["3h"])
+    check_true("add asks, with the category default",
+               "Estimate for 'First' (e.g. 3h, Enter to use the category default, 4h):" in out,
+               out)
+    check("The answer is the estimate", task.export("description:First")[0].get("estimate"),
+          "PT3H")
+
+    run_tty(task, ["add", "Second", "project:os"], [""])
+    check_true("Enter leaves it to the default", "estimate" not in
+               task.export("description:Second")[0], "")
+
+    code, out = run_tty(task, ["add", "Third", "project:misc"], ["soon", "90min"])
+    check_true("A wrong answer asks again", "That is not a duration" in out and
+               "Enter to leave it without one" in out, out)
+    check("... and then takes the right one", task.export("description:Third")[0].get("estimate"),
+          "PT1H30M")
+
+    for name, args, why in [("Fourth", ["project:other"], "no category"),
+                            ("Fifth", ["project:os", "estimate:1h"], "an estimate already"),
+                            ("Sixth", ["project:os", "rc.schedule.estimate.ask:off"], "off")]:
+        code, out = run_tty(task, ["add", name] + args, ["2h"])
+        check_true("No question with " + why, "Estimate for" not in out, out)
+
+    task.out("add", "Piped", "project:os")  # Not a terminal.
+    check_true("No question when not on a terminal", "estimate" not in
+               task.export("description:Piped")[0], "")
+
+    task.out("add", "Moved", "project:other")
+    uuid = task.export("description:Moved")[0]["uuid"]
+    code, out = run_tty(task, [uuid, "modify", "project:os"], ["5h"])
+    check_true("modify asks when a task comes into a category", "Estimate for 'Moved'" in out, out)
+    check("... and stores the answer", task.export(uuid)[0].get("estimate"), "PT5H")
+    task.out(uuid, "modify", "estimate:")
+    code, out = run_tty(task, [uuid, "modify", "priority:H"], ["5h"])
+    check_true("modify does not ask for a task already in a category", "Estimate for" not in out,
+               out)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -1754,4 +1900,5 @@ if __name__ == "__main__":
                         test_due_change, test_pacing_spreads, test_pace_and_overload,
                         test_critical, test_behind_through_fallback, test_max_per_day,
                         test_overdue_grace, test_pacing_settings, test_ended_slots,
-                        test_overload_count, test_help], fresh=True))
+                        test_overload_count, test_default_estimates,
+                        test_over_estimate_and_left, test_ask_estimate, test_help], fresh=True))

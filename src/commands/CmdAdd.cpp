@@ -28,6 +28,7 @@
 // cmake.h include header must come first
 
 #include <CmdAdd.h>
+#include <ScheduleAsk.h>  // PersianTask
 #include <Context.h>
 #include <feedback.h>
 #include <format.h>
@@ -56,6 +57,7 @@ int CmdAdd::execute(std::string& output) {
   // the task is empty, but DOM references can refer to earlier parts of the
   // command line, e.g., `task add due:20110101 wait:due`.
   task.modify(Task::modReplace, true);
+  schedule::askEstimate(task, nullptr);  // PersianTask
 
   // Validate a task for addition. This is stricter than `task.validate`, as any
   // inconsistency is probably user error.

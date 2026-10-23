@@ -32,6 +32,7 @@ struct Category {
   double floor{-1};  // Hours a week, or -1 for none.
   std::string filter;
   bool accounting{true};  // False with 'accounting:off': never counts hours.
+  long estimate{-1};      // With 'estimate:4h': for its tasks with none, in seconds.
   int line{0};
 };
 

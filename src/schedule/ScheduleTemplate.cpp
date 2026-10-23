@@ -376,15 +376,21 @@ void Template::parseCategory(const std::string& line, int number) {
   // The filter is the rest of the line, as written.
   auto rest = trim(line.substr(line.find(tokens[0]) + tokens[0].length()));
   rest = trim(rest.substr(rest.find(tokens[1]) + tokens[1].length()));
-  // accounting:off at the end keeps the category out of the hours.
-  for (auto option : {"accounting:off", "accounting:on"}) {
-    std::string suffix = option;
-    if (rest.length() > suffix.length() &&
-        rest.compare(rest.length() - suffix.length(), suffix.length(), suffix) == 0 &&
-        isspace(static_cast<unsigned char>(rest[rest.length() - suffix.length() - 1]))) {
-      category.accounting = suffix == "accounting:on";
-      rest = trim(rest.substr(0, rest.length() - suffix.length()));
-    }
+  // Options at the end, after the filter: accounting:off keeps the category
+  // out of the hours, and estimate:4h is the estimate of its tasks with none.
+  for (;;) {
+    auto space = rest.find_last_of(" \t");
+    if (space == std::string::npos) break;
+    auto option = rest.substr(space + 1);
+    if (option == "accounting:off" || option == "accounting:on")
+      category.accounting = option == "accounting:on";
+    else if (option.substr(0, 9) == "estimate:") {
+      category.estimate = parseHours(option.substr(9));
+      if (category.estimate <= 0)
+        problem(number, format("'{1}' is not an estimate, such as estimate:4h.", option));
+    } else
+      break;
+    rest = trim(rest.substr(0, space));
   }
 
   if (rest.length() >= 2 && rest.front() == '"' && rest.back() == '"')

@@ -256,8 +256,8 @@ Datetime Week::reference() const {
 ////////////////////////////////////////////////////////////////////////////////
 // The tasks of the pool that match the filter, as of the reference time, in
 // the pool's order.
-static std::vector<Task> evaluateAt(const std::string& filter, const std::vector<Task>& pool,
-                                    time_t reference) {
+std::vector<Task> filterTasks(const std::string& filter, const std::vector<Task>& pool,
+                              time_t reference) {
   NowGuard now(reference);
 
   std::vector<Task> result;
@@ -309,8 +309,7 @@ static bool timeDependent(const std::string& filter) {
 ////////////////////////////////////////////////////////////////////////////////
 Horizon::Horizon(const Template& tmpl, const State* state) : _template(tmpl), _state(state) {
   for (auto& task : Context::getContext().tdb2.pending_tasks())
-    if (task.getStatus() == Task::pending && !task.is_blocked && task.has("due") &&
-        schedule::estimate(task) > 0)
+    if (task.getStatus() == Task::pending && !task.is_blocked && task.has("due"))
       _pool.push_back(task);
 }
 
@@ -337,7 +336,7 @@ const std::vector<int>& Horizon::matches(const std::string& filter, time_t refer
   if (!filter.empty() && !_pool.empty()) {
     std::map<std::string, int> byUuid;
     for (size_t i = 0; i < _pool.size(); ++i) byUuid[_pool[i].get("uuid")] = static_cast<int>(i);
-    for (auto& task : evaluateAt(filter, _pool, reference))
+    for (auto& task : filterTasks(filter, _pool, reference))
       indexes.push_back(byUuid[task.get("uuid")]);
   }
   return _matches[key] = indexes;
@@ -357,7 +356,7 @@ Planner::Planner(const Template& tmpl, const Datetime& reference,
 
 ////////////////////////////////////////////////////////////////////////////////
 std::vector<Task> Planner::evaluate(const std::string& filter, const std::vector<Task>& pool) {
-  return evaluateAt(filter, pool, _reference.toEpoch());
+  return filterTasks(filter, pool, _reference.toEpoch());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -395,6 +394,10 @@ const Effort& Planner::effort(const Task& task) {
 
   Effort effort;
   effort.estimate = schedule::estimate(task);
+  if (effort.estimate <= 0) {
+    effort.estimate = defaultEstimate(task);
+    effort.defaulted = effort.estimate > 0;
+  }
   if (effort.estimate > 0) {
     effort.planned = static_cast<long>(effort.estimate * _template.estimateFactor + 0.5);
     effort.tracked = schedule::tracked(task);
@@ -491,11 +494,24 @@ std::optional<Task> Planner::pick(const std::string& filter, const Instance& ins
 ////////////////////////////////////////////////////////////////////////////////
 std::string Planner::categoryOf(const Task& task) {
   auto uuid = task.get("uuid");
-  return _template.accountFor([&](const Category& category) {
-    for (auto& t : matching(category.filter))
-      if (t.get("uuid") == uuid) return true;
-    return false;
-  });
+  return _template.accountFor(
+      [&](const Category& category) { return contains(category.filter, uuid); });
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// The default estimate of a task with none: that of the category its hours
+// count for, or else of the first category it matches that has one.
+long Planner::defaultEstimate(const Task& task) {
+  if (std::none_of(_template.categories.begin(), _template.categories.end(),
+                   [](auto& c) { return c.estimate > 0; }))
+    return -1;
+
+  auto counting = _template.category(categoryOf(task));
+  if (counting && counting->estimate > 0) return counting->estimate;
+  for (auto& category : _template.categories)
+    if (category.estimate > 0 && contains(category.filter, task.get("uuid")))
+      return category.estimate;
+  return -1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -932,6 +948,19 @@ std::vector<Assignment> Planner::plan(const Week& week) {
         break;
       }
     }
+  }
+
+  // Tasks planned this week that are past their estimate, which is probably
+  // wrong: 'task schedule left' corrects it.
+  std::set<std::string> over;
+  for (auto& assignment : assignments) {
+    if (!assignment.task) continue;
+    auto& task = *assignment.task;
+    auto& e = effort(task);
+    if (e.estimate > 0 && e.remaining <= 0 && over.insert(task.get("uuid")).second)
+      notes.push_back(format("Task {1} '{2}' is over its estimate: run 'task schedule left {1} "
+                             "<hours>' with the hours it still needs.",
+                             task.id, task.get("description")));
   }
 
   // Tasks that cannot be finished in time, whatever the plan.

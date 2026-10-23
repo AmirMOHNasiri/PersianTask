@@ -155,6 +155,10 @@ int CmdSchedule::execute(std::string& output) {
   if (name == "assign") return assign(args, output);
   if (name == "reset") return reset(args, output);
   if (name == "borrow") return borrow(args, output);
+  if (name == "left") {
+    if (args.size() != 2) throw usage();
+    return left(args, output);
+  }
   if (name == "review") return review(args, output);
   if (name == "mode") return mode(args, output);
   if (name == "event") return event(args, output);

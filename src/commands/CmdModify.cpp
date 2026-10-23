@@ -28,6 +28,7 @@
 // cmake.h include header must come first
 
 #include <CmdModify.h>
+#include <ScheduleAsk.h>  // PersianTask
 #include <Context.h>
 #include <Filter.h>
 #include <feedback.h>
@@ -80,6 +81,7 @@ int CmdModify::execute(std::string&) {
   for (auto& task : filtered) {
     Task before(task);
     task.modify(Task::modReplace);
+    schedule::askEstimate(task, &before);  // PersianTask
 
     if (before != task) {
       // Abort if change introduces inconsistencies.

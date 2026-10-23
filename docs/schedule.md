@@ -277,6 +277,15 @@ Jome
   [everyday] lunch does not apply: except:Jome
 ```
 
+### task schedule left
+
+```
+task schedule left 12 3
+task schedule left 12 90min
+```
+
+Corrects a task's estimate, by giving the hours it still needs: the estimate becomes (hours + time tracked) / `estimate.factor`. See [a wrong estimate](#estimates).
+
 ### task schedule help
 
 ```
@@ -300,7 +309,26 @@ An estimate needs a unit: `4h`, `90min`, `1.5h`, `2d`. Taskwarrior refuses a bar
 
 The schedule then plans the estimate times `estimate.factor` (a template setting, 1.5 in the example), since work tends to take longer than expected. The `Estimate` column shows both: `4h (6h)`.
 
-The time still to plan is the planned time minus the time already tracked on the task with `task start` and `task stop`. Once time is tracked, the column shows what is left, as in `4h (6h), 2.5h left`, and a task past its planned time shows `over`.
+The time still to plan is the planned time minus the time already tracked on the task with `task start` and `task stop`. Once time is tracked, the column shows what is left, as in `4h (6h), 2.5h left`. So track your work with `task start` and `task stop`: the time tracked is what the schedule counts as done, and whatever is not tracked is planned again.
+
+**A wrong estimate.** A task still pending once its tracked time reaches its planned time shows `over estimate`, and a note under today's schedule, the week and the review offers to correct it:
+
+```
+task schedule left 12 3
+```
+
+says that task 12 still needs 3 hours. The estimate becomes (3h + time tracked) / `estimate.factor`, so that the time left to plan is exactly 3h: with 2h tracked and a factor of 1.5, that is 3h20min, planned as 5h, less the 2h tracked. `task undo` undoes it, like any change to a task.
+
+**Default estimates.** A category can give its tasks an estimate when they have none, with `estimate:4h` at the end of its line (see [[categories]](#categories)). The `Estimate` column then shows `4h default (6h)`. The default is never stored in the task; if a task matches several categories, it is the default of the category its [hours count for](#which-category-hours-count-for), or else of the first one in the template that has one.
+
+**Asked when adding.** When `task add` creates a task that matches one of the schedule's categories, without an estimate, or `task modify` brings a task without one into a category, PersianTask asks for it:
+
+```
+$ task add OS homework 4 project:os +homework due:1405-08-12
+Estimate for 'OS homework 4' (e.g. 3h, Enter to use the category default, 4h):
+```
+
+Enter leaves the task without an estimate (using the category's default, if any), and a plain number means hours. It only asks on a terminal, never when `task` is run by a script or with its input or output redirected, and never when the template is missing or has mistakes. `task config schedule.estimate.ask off` turns the question off.
 
 A task with time left takes slots, most urgent first, until that time is covered. Slots of this week that have already ended take no task, and show `past`: the work done in them is the time you tracked, so they never use up a task's time, its slots for the day, or `max.per-day`. A slot under way counts only from the current time. (For a category's hours, an ended slot still counts for its own category, if that has a floor, so that the week's hours do not drop as it passes.) A task with no estimate, or past it, takes at most `unestimated.per-day` slots a day.
 
@@ -482,7 +510,9 @@ One category per line: a name, a floor, and a filter.
 
 - The **name** is used by slots, fallback chains, borrowing and modes. It uses letters, digits, `-` and `_`.
 - The **floor** is the minimum number of hours a week the category should get, or `-` for none. [Borrowing](#borrowing-time) never takes a category below its floor.
-- `accounting:off` at the end of the line keeps the category out of [the hours](#which-category-hours-count-for) and the review.
+- Options at the end of the line, after the filter:
+  - `accounting:off` keeps the category out of [the hours](#which-category-hours-count-for) and the review.
+  - `estimate:4h` is the [estimate](#estimates) of its tasks that have none, as in `os  4  project:os  estimate:3h`.
 - The **filter** is the rest of the line, written exactly as on the Taskwarrior command line: `project:os`, `+term`, `project:os +homework`, `due.before:now+7d`, `description.has:"two words"`, and so on. In a filter, `now` means the time of the week being planned (see [Relative dates in filters](#relative-dates-in-filters)).
 
 ### Days: [shanbe] to [jome]
@@ -587,6 +617,7 @@ These go in `.taskrc`, and can be set with `task config`:
 | `schedule.sleep` | `24:00` | The end of the day, `sleep` in templates. |
 | `schedule.report` | `important` | The report below today's schedule, or `none`. |
 | `schedule.estimate.uda` | `estimate` | The UDA holding [estimates](#estimates). It must be a duration. |
+| `schedule.estimate.ask` | `on` | Ask for an estimate in `task add` and `task modify`, on a terminal, when a task comes into a category without one. |
 | `dateformat.schedule` | `A d B Y` | The date format of the schedule's headers. |
 | `color.schedule.header` | `bold` | Color of the day headers. |
 | `color.schedule.now` | `bold green` | Color of the current slot. |

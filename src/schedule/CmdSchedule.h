@@ -43,6 +43,9 @@ class CmdSchedule : public Command {
   int event(std::vector<std::string>, std::string&);
   int undo(std::string&);
   int log(std::string&);
+
+  // Estimates.
+  int left(const std::vector<std::string>&, std::string&);
 };
 
 #endif

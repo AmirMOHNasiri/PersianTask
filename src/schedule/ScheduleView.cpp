@@ -93,8 +93,9 @@ std::string describePlace(const Datetime& day, int start, int end) {
 std::string describeEffort(const Effort& effort) {
   if (effort.estimate <= 0) return "";
 
-  auto text = formatHours(effort.estimate) + " (" + formatHours(effort.planned) + ")";
-  if (effort.remaining <= 0) return text + ", over";
+  auto text = formatHours(effort.estimate) + (effort.defaulted ? " default" : "") + " (" +
+              formatHours(effort.planned) + ")";
+  if (effort.remaining <= 0) return text + ", over estimate";
   if (effort.tracked > 0) text += ", " + formatHours(effort.remaining) + " left";
   return text;
 }

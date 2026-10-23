@@ -34,6 +34,14 @@ and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
   one task gets in a day) and `overdue.critical-days` (7 by default).
 - Slots of the current week that have ended take no task and show `past`, so
   that they no longer use up a task's slots or time for the rest of the day.
+- Default estimates: `estimate:4h` at the end of a category's line is the
+  estimate of its tasks that have none, shown as `4h default`.
+- `task add` and `task modify` ask for an estimate, on a terminal, when a task
+  comes into a schedule category without one. `schedule.estimate.ask=off`
+  turns it off.
+- A task past its estimate shows `over estimate`, and
+  `task schedule left <task> <hours>` corrects the estimate to the hours the
+  task still needs.
 - `task schedule week next` plans the weeks in between first, as if their
   planned work were done, so that work planned this week is not planned again
   next week.

@@ -16,6 +16,7 @@ file (READ ${SCHEDULE_EXAMPLE_FILE} SCHEDULE_EXAMPLE)
 configure_file (ScheduleExample.h.in ${CMAKE_CURRENT_BINARY_DIR}/ScheduleExample.h @ONLY)
 
 set (schedule_SRCS CmdSchedule.cpp       CmdSchedule.h
+                   ScheduleAsk.cpp       ScheduleAsk.h
                    CmdScheduleEdit.cpp
                    CmdScheduleReview.cpp
                    ScheduleEffort.cpp    ScheduleEffort.h
