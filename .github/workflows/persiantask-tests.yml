@@ -1,7 +1,8 @@
 # Builds PersianTask and runs its tests, on every push to main and every pull
-# request.  A manual run (workflow_dispatch) also runs upstream Taskwarrior's
-# own tests with calendar=gregorian, which take several more minutes; the
-# weekly upstream sync runs them too.
+# request.  A manual run (workflow_dispatch) also runs them with the clock a
+# year ahead, to catch tests that pass only around the date they were written,
+# and upstream Taskwarrior's own tests with calendar=gregorian, which take
+# several more minutes; the weekly upstream sync runs both too.
 
 name: Tests
 
@@ -24,6 +25,14 @@ jobs:
 
       - name: Build and test
         run: bash persiantask/build-and-test.sh
+
+      - name: Tests a year from now
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PERSIANTASK_TESTING: 1  # The build has the test-only switches.
+        run: |
+          sudo apt-get install -y libfaketime
+          bash persiantask/faketime-tests.sh build/src/task "+1 year"
 
       - name: Upstream test suite
         if: github.event_name == 'workflow_dispatch'

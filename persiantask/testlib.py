@@ -2,6 +2,18 @@
 
 Each test runs the task binary against its own temporary data directory, so
 the tests never touch the user's data.
+
+Tests must pass on any day, not only around the day they were written:
+
+- When a test pins the schedule's now (NOW, rc.schedule.now), every relative
+  date it creates must be relative to that same fixed time, never to the real
+  clock: write due:2026-10-19T12:00:00 (NOW plus two days), not due:now+2d,
+  which drifts away from NOW as real days pass.
+- Otherwise, compute expectations from the real date (datetime.date.today()),
+  and do not assume two named dates differ: on the last day of Esfand, the
+  next Farvardin is also farda.
+
+persiantask/faketime-tests.sh runs the suites at other real dates, to check.
 """
 
 import datetime

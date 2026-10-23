@@ -182,7 +182,9 @@ def test_weekdays_and_weekend(task):
 def test_rcalendar(task):
     """Recurring tasks keep the calendar they were created under, in the
     rcalendar UDA, which is declared, so that it is not an orphan."""
-    task.out("add", "Daily", "due:2026-10-18", "recur:daily")
+    # Due today: a fixed date would make more instances, and a longer mask in
+    # task info, with every day that passes.
+    task.out("add", "Daily", "due:today", "recur:daily")
     task.out("rc.calendar:gregorian", "add", "Yearly", "due:2026-10-18", "recur:yearly")
     parents = {t["description"]: t for t in task.export("status:recurring")}
     check("Stamped when created, before any report", parents["Daily"].get("rcalendar"), "jalali")

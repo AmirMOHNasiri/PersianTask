@@ -189,10 +189,11 @@ def test_persian_days_in_attributes(task):
     check("due:far is the next Farvardin, not farda",
           export_date(task.export("project:persian", "Farvardin")[0]["due"]), farvardin)
 
-    task.out("add", "project:persian", "Today task", "due:emruz")
-    task.out("add", "project:persian", "Tomorrow task", "due:farda")
-    check("due.before:farda in a filter", task.out("project:persian", "due.before:farda", "count"), "1")
-    check("due:farda in a filter", task.out("project:persian", "due:farda", "count"), "1")
+    # A project of their own: on the last day of Esfand, Farvardin is farda.
+    task.out("add", "project:days", "Today task", "due:emruz")
+    task.out("add", "project:days", "Tomorrow task", "due:farda")
+    check("due.before:farda in a filter", task.out("project:days", "due.before:farda", "count"), "1")
+    check("due:farda in a filter", task.out("project:days", "due:farda", "count"), "1")
 
 
 def test_display(task):
