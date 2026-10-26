@@ -8,22 +8,28 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
-## Unreleased
+## 3.5.0-persiantask.6 (2026-10-26)
+
+Weekly floors protect categories such as research from losing every week;
+this release lets a deadline that truly matters go below them, on request or
+by choice.
 
 ### The weekly schedule
 
-- `task schedule borrow <task> <hours> force` may take slots below their
-  categories' floors when the slots that keep floors are not enough, and
-  says which floors it broke and by how much.
-- Opt-in: with `critical.break-floors = H` in the template, a priority:H task
-  that would otherwise miss its due date takes the borrow-order slots it
-  needs, below floors if it must. It is off unless set; the example template
-  sets it.
+- `task schedule borrow <task> <hours> force`: when the slots that keep their
+  categories' floors are not enough, takes slots below floors too, in the
+  borrow order, and says which floors it broke and by how much. It never
+  takes a fixed, rest, past, protected or assigned slot, nor another critical
+  task's.
+- `critical.break-floors = H` (opt-in, off unless set in the template; the
+  example template sets it): a priority:H task that would otherwise miss its
+  due date takes the borrow-order slots it needs, below floors if it must.
+  Other tasks keep to floors. Such slots show `research (floor broken)`.
 - The review lists the floors broken on purpose this week, and by which
-  tasks, and warns when one was broken two weeks running.
-- A task that does not fit before it is due is told what would help:
-  `borrow ... force`, priority:H, or, when even every slot is not enough,
-  asking for an extension or reducing scope.
+  tasks, and warns when a category's floor was broken two weeks running.
+- A task that does not fit before its due date is told what would help:
+  `task schedule borrow ... force`, priority:H, or, when even every slot
+  would not be enough, asking for an extension or reducing scope.
 
 ## 3.5.0-persiantask.5 (2026-10-26)
 

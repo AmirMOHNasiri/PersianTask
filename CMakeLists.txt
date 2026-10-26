@@ -57,7 +57,7 @@ set (PACKAGE_STRING "${PACKAGE} ${VERSION}")
 # 3.5.0-persiantask.1, shown by 'task --version'.  PACKAGE_VERSION stays
 # upstream's, since 'task news' compares it as x.y.z.  Release tags are
 # v<VERSION>; see persiantask/release.sh.
-set (PERSIANTASK_RELEASE 5)
+set (PERSIANTASK_RELEASE 6)
 set (VERSION "${PROJECT_VERSION}-persiantask.${PERSIANTASK_RELEASE}")
 
 if (FREEBSD OR DRAGONFLY)
