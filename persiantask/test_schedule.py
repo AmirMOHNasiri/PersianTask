@@ -1848,7 +1848,8 @@ def test_ask_estimate(task):
     write_template(task, ESTIMATES)
     code, out = run_tty(task, ["add", "First", "project:os"], ["3h"])
     check_true("add asks, with the category default",
-               "Estimate for 'First' (e.g. 3h, Enter to use the category default, 4h):" in out,
+               "Estimate for 'First' (e.g. 3h, padded by estimate.factor, or =3h exact, as it is; "
+               "Enter for the category default, 4h):" in out,
                out)
     check("The answer is the estimate", task.export("description:First")[0].get("estimate"),
           "PT3H")
@@ -1859,7 +1860,7 @@ def test_ask_estimate(task):
 
     code, out = run_tty(task, ["add", "Third", "project:misc"], ["soon", "90min"])
     check_true("A wrong answer asks again", "That is not a duration" in out and
-               "Enter to leave it without one" in out, out)
+               "Enter for none" in out, out)
     check("... and then takes the right one", task.export("description:Third")[0].get("estimate"),
           "PT1H30M")
 
@@ -2309,6 +2310,44 @@ def test_now(task):
                in out, out)
 
 
+def test_exact_estimates(task):
+    """An exact estimate is planned as it is, never padded by the factor."""
+    write_template(task, ESTIMATES)
+    task.out("add", "Lecture", "project:os", "exact:1.5h")
+    task.out("add", "Both", "project:os", "estimate:4h", "exact:2h", "priority:L")
+    found = slots(task.out(NOW, "schedule", "week"))
+    lecture = [found[d + "-o"] for d in WEEK if found.get(d + "-o", ("", "", ""))[1] == "Lecture"]
+    check_true("Shown as exact", lecture and "1.5h exact" in lecture[0][2], lecture)
+    # 1.5h fits in one 2h slot; padded (2.25h) it would take two.
+    check("Planned as it is: one 2h slot for 1.5h", len(lecture), 1)
+    out = task.out(NOW, "schedule", "week")
+    check_true("With both, the exact one is used, and the week says so",
+               "Task 2 has both an estimate, 4h, and an exact one, 2h: the exact one is used." in out
+               and "2h exact" in out, out)
+    check_true("... and check too", "the exact one is used" in task.out(NOW, "schedule", "check"),
+               "")
+
+    # left with an exact estimate: what is left plus what is done.
+    task.out("1", "start")
+    task.out("1", "modify", "start:now-1h")
+    task.out("1", "stop")
+    out = task.out(NOW, "schedule", "left", "1", "2")
+    check_true("left keeps it exact: 2h left plus 1h tracked",
+               "exact estimate 3h, so that 2h are left: 3h, less 1h tracked.  It was 1.5h" in out,
+               out)
+    check("Stored as the exact estimate", task.export("1")[0].get("exact"), "PT3H")
+
+    # The question: =3h for an exact estimate.
+    code, out = run_tty(task, ["add", "Video", "project:os"], ["=1.5h"])
+    check("=1.5h is an exact estimate", task.export("description:Video")[0].get("exact"), "PT1H30M")
+    check_true("... and not a padded one", "estimate" not in task.export("description:Video")[0], "")
+
+    task.out("config", "uda.exact.type", "string")
+    code, out, err = task.run(NOW, "schedule", "check")
+    check_true("check reports an exact UDA that is not a duration", code != 0 and
+               "the schedule needs exact estimates as durations" in out, out + err)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -2334,4 +2373,4 @@ if __name__ == "__main__":
                         test_project_left_after_earlier_weeks, test_work_conserving,
                         test_compact_layout, test_pace_is_even, test_virtual_tags,
                         test_secondary_categories, test_peek, test_next, test_open,
-                        test_now, test_help], fresh=True))
+                        test_now, test_exact_estimates, test_help], fresh=True))

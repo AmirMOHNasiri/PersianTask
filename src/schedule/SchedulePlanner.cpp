@@ -399,14 +399,19 @@ const Effort& Planner::effort(const Task& task) {
   auto found = _efforts.find(uuid);
   if (found != _efforts.end()) return found->second;
 
+  // An exact estimate wins over a padded one, which wins over the default.
   Effort effort;
-  effort.estimate = schedule::estimate(task);
+  effort.estimate = schedule::exactEstimate(task);
+  effort.exact = effort.estimate > 0;
+  if (!effort.exact) effort.estimate = schedule::estimate(task);
   if (effort.estimate <= 0) {
     effort.estimate = defaultEstimate(task);
     effort.defaulted = effort.estimate > 0;
   }
   if (effort.estimate > 0) {
-    effort.planned = static_cast<long>(effort.estimate * _template.estimateFactor + 0.5);
+    effort.planned = effort.exact
+                         ? effort.estimate
+                         : static_cast<long>(effort.estimate * _template.estimateFactor + 0.5);
     effort.tracked = schedule::tracked(task);
     effort.remaining = effort.planned - effort.tracked;
   }

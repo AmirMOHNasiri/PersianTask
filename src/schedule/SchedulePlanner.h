@@ -135,11 +135,13 @@ enum class Source {
 };
 
 // A task's estimate, in seconds.  Planned is the estimate times the
-// template's estimate.factor, and remaining is planned minus tracked time.
+// template's estimate.factor, or an exact estimate as it is, and remaining is
+// planned minus tracked time.
 // A task with no estimate of its own may have its category's default.
 struct Effort {
   long estimate{-1};  // -1 for none.
   bool defaulted{false};  // The estimate is its category's default.
+  bool exact{false};      // An exact estimate: planned as it is, without the factor.
   long planned{0};
   long tracked{0};
   long remaining{0};

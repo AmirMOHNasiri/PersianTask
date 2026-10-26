@@ -348,13 +348,21 @@ The schedule then plans the estimate times `estimate.factor` (a template setting
 
 The time still to plan is the planned time minus the time already tracked on the task with `task start` and `task stop`. Once time is tracked, the column shows what is left, as in `4h (6h), 2.5h left`. So track your work with `task start` and `task stop`: the time tracked is what the schedule counts as done, and whatever is not tracked is planned again.
 
+**Exact estimates.** Some estimates are exact already, such as a 1.5h lecture video, and padding them would waste slots. Give those as `exact` instead, a second duration UDA:
+
+```
+task add ETH lecture 5 project:arch exact:1.5h
+```
+
+An exact estimate is planned as it is, never multiplied by `estimate.factor`, and the `Estimate` column shows it as `1.5h exact`. If a task has both, the exact one is used, and `task schedule week` and `check` say so. Pacing, the overload warning, `over estimate` and the review all use the planned hours, whichever kind the estimate is. The UDA's name is set by `schedule.estimate.exact.uda` (`exact` by default), and is checked like the estimate UDA.
+
 **A wrong estimate.** A task still pending once its tracked time reaches its planned time shows `over estimate`, and a note under today's schedule, the week and the review offers to correct it:
 
 ```
 task schedule left 12 3
 ```
 
-says that task 12 still needs 3 hours. The estimate becomes (3h + time tracked) / `estimate.factor`, so that the time left to plan is exactly 3h: with 2h tracked and a factor of 1.5, that is 3h20min, planned as 5h, less the 2h tracked. `task undo` undoes it, like any change to a task.
+says that task 12 still needs 3 hours. The estimate becomes (3h + time tracked) / `estimate.factor`, so that the time left to plan is exactly 3h: with 2h tracked and a factor of 1.5, that is 3h20min, planned as 5h, less the 2h tracked. For an exact estimate, it simply becomes 3h + time tracked. `task undo` undoes it, like any change to a task.
 
 **Default estimates.** A category can give its tasks an estimate when they have none, with `estimate:4h` at the end of its line (see [[categories]](#categories)). The `Estimate` column then shows `4h default (6h)`. The default is never stored in the task; if a task matches several categories, it is the default of the category its [hours count for](#which-category-hours-count-for), or else of the first one in the template that has one.
 
@@ -362,10 +370,10 @@ says that task 12 still needs 3 hours. The estimate becomes (3h + time tracked) 
 
 ```
 $ task add OS homework 4 project:os +homework due:1405-08-12
-Estimate for 'OS homework 4' (e.g. 3h, Enter to use the category default, 4h):
+Estimate for 'OS homework 4' (e.g. 3h, padded by estimate.factor, or =3h exact, as it is; Enter for the category default, 4h):
 ```
 
-Enter leaves the task without an estimate (using the category's default, if any), and a plain number means hours. It only asks on a terminal, never when `task` is run by a script or with its input or output redirected, and never when the template is missing or has mistakes. `task config schedule.estimate.ask off` turns the question off.
+`3h` is an estimate, padded by `estimate.factor`, and `=3h` an exact one. Enter leaves the task without an estimate (using the category's default, if any), and a plain number means hours. It only asks on a terminal, never when `task` is run by a script or with its input or output redirected, and never when the template is missing or has mistakes. `task config schedule.estimate.ask off` turns the question off.
 
 A task with time left takes slots, most urgent first, until that time is covered. Slots of this week that have already ended take no task, and show `past`: the work done in them is the time you tracked, so they never use up a task's time, its slots for the day, or `max.per-day`. A slot under way counts only from the current time. (For a category's hours, an ended slot still counts for its own category, if that has a floor, so that the week's hours do not drop as it passes.) A task with no estimate, or past it, takes at most `unestimated.per-day` slots a day.
 
@@ -659,6 +667,7 @@ These go in `.taskrc`, and can be set with `task config`:
 | `schedule.sleep` | `24:00` | The end of the day, `sleep` in templates. |
 | `schedule.report` | `important` | The report below today's schedule, or `none`. |
 | `schedule.estimate.uda` | `estimate` | The UDA holding [estimates](#estimates). It must be a duration. |
+| `schedule.estimate.exact.uda` | `exact` | The UDA holding [exact estimates](#estimates), which are never padded. It must be a duration. |
 | `schedule.estimate.ask` | `on` | Ask for an estimate in `task add` and `task modify`, on a terminal, when a task comes into a category without one. |
 | `schedule.layout` | `auto` | The layout of the schedule's tables: `full`, `compact` for narrow terminals, or `auto`, which chooses by width. |
 | `dateformat.schedule` | `A d B Y` | The date format of the schedule's headers. |

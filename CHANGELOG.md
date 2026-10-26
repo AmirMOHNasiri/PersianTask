@@ -12,6 +12,10 @@ and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
 ### The weekly schedule
 
+- Exact estimates: `exact:1.5h` (a second UDA, `exact` by default) is
+  planned as it is, never padded by `estimate.factor`, and shown as
+  `1.5h exact`. The estimate question takes `=1.5h` for one, and
+  `task schedule left` keeps it exact.
 - `task schedule now` says what to work on right now; `peek <slot>` lists a
   slot's task and the next ones it would take, with why some are not
   planned there; `next <slot>` gives a slot its next candidate for the week;

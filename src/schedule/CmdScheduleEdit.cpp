@@ -852,6 +852,22 @@ int CmdSchedule::left(const std::vector<std::string>& args, std::string& output)
                  args[1], first);
 
   auto tracked = schedule::tracked(task);
+
+  // An exact estimate is simply what is left and what is done.
+  auto exact = schedule::exactEstimate(task);
+  if (exact > 0) {
+    auto estimate = (hours + tracked + 30) / 60 * 60;  // Whole minutes.
+    task.set(exactUda(), Duration(estimate).formatISO());
+    Context::getContext().tdb2.modify(task);
+    output = format(
+        "Task {1} '{2}': exact estimate {3}, so that {4} {5} left: {3}, less {6} tracked.  It "
+        "was {7}; 'task undo' restores it.\n",
+        first, task.get("description"), formatHours(estimate), formatHours(hours),
+        hours == 3600 ? "is" : "are", tracked > 0 ? formatHours(tracked) : "0h",
+        formatHours(exact));
+    return 0;
+  }
+
   auto estimate = static_cast<long>((hours + tracked) / tmpl.estimateFactor + 0.5);
   estimate = (estimate + 30) / 60 * 60;  // Whole minutes.
   auto previous = schedule::estimate(task);

@@ -41,40 +41,62 @@ long parseDuration(const std::string& value) {
 
 }  // namespace
 
+namespace {
+
+// What is wrong with the UDA a setting names, which must be a duration: the
+// setting, what it is for, and another name to suggest.
+std::string udaProblem(const std::string& setting, const std::string& what,
+                       const std::string& example, const std::string& other) {
+  auto name = Context::getContext().config.get(setting);
+  if (name.empty()) return format("The setting {1} must name a UDA, such as {2}.", setting, example);
+
+  auto type = Context::getContext().config.get("uda." + name + ".type");
+  if (type.empty())
+    return format(
+        "The {1} UDA '{2}' ({3}) is not defined.  Define it with 'task config uda.{2}.type "
+        "duration'.",
+        what, name, setting);
+
+  if (type != "duration")
+    return format(
+        "Your configuration defines the UDA '{1}' as a {2}, but the schedule needs {3}s "
+        "as durations, such as 2h.  Either make it a duration with 'task config uda.{1}.type "
+        "duration', or keep it and give the schedule another UDA: 'task config "
+        "{4} {5}' and 'task config uda.{5}.type duration'.",
+        name, type, what, setting, other);
+
+  return "";
+}
+
+long durationOf(const Task& task, const std::string& name, const std::string& problem) {
+  if (!problem.empty() || !task.has(name)) return -1;
+  auto seconds = parseDuration(task.get(name));
+  return seconds > 0 ? seconds : -1;
+}
+
+}  // namespace
+
 ////////////////////////////////////////////////////////////////////////////////
 std::string estimateUda() { return Context::getContext().config.get("schedule.estimate.uda"); }
 
 ////////////////////////////////////////////////////////////////////////////////
 std::string estimateUdaProblem() {
-  auto name = estimateUda();
-  if (name.empty()) return "The setting schedule.estimate.uda must name a UDA, such as estimate.";
-
-  auto type = Context::getContext().config.get("uda." + name + ".type");
-  if (type.empty())
-    return format(
-        "The estimate UDA '{1}' (schedule.estimate.uda) is not defined.  Define it with "
-        "'task config uda.{1}.type duration'.",
-        name);
-
-  if (type != "duration")
-    return format(
-        "Your configuration defines the UDA '{1}' as a {2}, but the schedule needs estimates "
-        "as durations, such as 2h.  Either make it a duration with 'task config uda.{1}.type "
-        "duration', or keep it and give the schedule another UDA: 'task config "
-        "schedule.estimate.uda effort' and 'task config uda.effort.type duration'.",
-        name, type);
-
-  return "";
+  return udaProblem("schedule.estimate.uda", "estimate", "estimate", "effort");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-long estimate(const Task& task) {
-  auto name = estimateUda();
-  if (!estimateUdaProblem().empty() || !task.has(name)) return -1;
+std::string exactUda() { return Context::getContext().config.get("schedule.estimate.exact.uda"); }
 
-  auto seconds = parseDuration(task.get(name));
-  return seconds > 0 ? seconds : -1;
+////////////////////////////////////////////////////////////////////////////////
+std::string exactUdaProblem() {
+  return udaProblem("schedule.estimate.exact.uda", "exact estimate", "exact", "exactly");
 }
+
+////////////////////////////////////////////////////////////////////////////////
+long estimate(const Task& task) { return durationOf(task, estimateUda(), estimateUdaProblem()); }
+
+////////////////////////////////////////////////////////////////////////////////
+long exactEstimate(const Task& task) { return durationOf(task, exactUda(), exactUdaProblem()); }
 
 ////////////////////////////////////////////////////////////////////////////////
 // As 'task info' does: a start is the time in the 'start' value, and a stop
@@ -121,11 +143,17 @@ long tracked(const Task& task) {
 std::vector<std::string> estimateWarnings() {
   std::vector<std::string> warnings;
   for (auto& task : Context::getContext().tdb2.pending_tasks()) {
-    auto seconds = estimate(task);
-    if (seconds > 0 && seconds < 5 * 60)
-      warnings.push_back(format(
-          "Task {1}'s estimate, {2}, looks like it is missing a unit, such as {3}h.", task.id,
-          formatHours(seconds), seconds < 60 ? seconds : seconds / 60));
+    auto padded = estimate(task);
+    auto exact = exactEstimate(task);
+    for (auto [seconds, what] : {std::pair{padded, "estimate"}, std::pair{exact, "exact estimate"}})
+      if (seconds > 0 && seconds < 5 * 60)
+        warnings.push_back(format(
+            "Task {1}'s {2}, {3}, looks like it is missing a unit, such as {4}h.", task.id, what,
+            formatHours(seconds), seconds < 60 ? seconds : seconds / 60));
+    if (padded > 0 && exact > 0)
+      warnings.push_back(format("Task {1} has both an estimate, {2}, and an exact one, {3}: the "
+                                "exact one is used.",
+                                task.id, formatHours(padded), formatHours(exact)));
   }
   return warnings;
 }

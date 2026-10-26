@@ -95,8 +95,9 @@ std::string describePlace(const Datetime& day, int start, int end) {
 std::string describeEffort(const Effort& effort, long before) {
   if (effort.estimate <= 0) return "";
 
-  auto text = formatHours(effort.estimate) + (effort.defaulted ? " default" : "") + " (" +
-              formatHours(effort.planned) + ")";
+  auto text = effort.exact ? formatHours(effort.estimate) + " exact"
+                          : formatHours(effort.estimate) + (effort.defaulted ? " default" : "") +
+                                " (" + formatHours(effort.planned) + ")";
   if (effort.remaining <= 0) return text + ", over estimate";
 
   // What is left: after the time tracked, and in a later week, after what

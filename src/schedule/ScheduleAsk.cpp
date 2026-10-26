@@ -49,6 +49,10 @@ void askEstimate(Task& task, const Task* before) {
   // Only a pending task with no estimate, which did not just lose one.
   auto uda = estimateUda();
   if (!task.get(uda).empty() || (before && !before->get(uda).empty())) return;
+  auto exactName = exactUda();
+  if (!exactName.empty() && (!task.get(exactName).empty() ||
+                             (before && !before->get(exactName).empty())))
+    return;
   auto status = task.getStatus();
   if (status == Task::completed || status == Task::deleted) return;
 
@@ -73,22 +77,27 @@ void askEstimate(Task& task, const Task* before) {
         break;
       }
 
-  auto hint = fallback > 0 ? format("Enter to use the category default, {1}", formatHours(fallback))
-                           : std::string("Enter to leave it without one");
+  auto hint = fallback > 0 ? format("Enter for the category default, {1}", formatHours(fallback))
+                           : std::string("Enter for none");
+  auto exactOk = exactUdaProblem().empty();
   for (;;) {
-    std::cout << format("Estimate for '{1}' (e.g. 3h, {2}): ", task.get("description"), hint)
+    std::cout << format("Estimate for '{1}' ({2}, padded by estimate.factor{3}; {4}): ",
+                        task.get("description"), "e.g. 3h",
+                        exactOk ? ", or =3h exact, as it is" : "", hint)
               << std::flush;
     std::string answer;
     if (!std::getline(std::cin, answer)) return;
     answer = trim(answer);
     if (answer.empty()) return;
 
-    auto seconds = parseHours(answer);
+    // '=3h' is an exact estimate, never padded.
+    bool exact = exactOk && answer[0] == '=';
+    auto seconds = parseHours(exact ? trim(answer.substr(1)) : answer);
     if (seconds > 0) {
-      task.set(uda, Duration(seconds).formatISO());
+      task.set(exact ? exactUda() : uda, Duration(seconds).formatISO());
       return;
     }
-    std::cout << "That is not a duration, such as 3h, 1.5h or 90min.\n";
+    std::cout << "That is not a duration, such as 3h, 1.5h or 90min, or =1.5h for an exact one.\n";
   }
 }
 

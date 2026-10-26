@@ -7,6 +7,6 @@
 # 'flaky' marks a test that fails only sometimes, which may pass or fail.
 
 calendar.test.py   weekstart defaults to saturday, so the calendar's week starts on Sa; passes with weekstart=sunday
-uda.test.py        the estimate and rcalendar UDAs are defined by default, so 'udas' lists 3 UDAs, not 1
+uda.test.py        the estimate, exact and rcalendar UDAs are defined by default, so 'udas' lists 4 UDAs, not 1
 version.test.py    the version is 3.5.0-persiantask.1, where the test expects upstream's 3.5.0
 view_test.cpp      flaky: aborts now and then under heavy parallel load, in pristine upstream too

@@ -293,6 +293,8 @@ int CmdSchedule::week(const std::vector<std::string>& args, std::string& output)
 
   auto udaProblem = estimateUdaProblem();
   if (!udaProblem.empty()) out << "Note: estimates are ignored.  " << udaProblem << '\n';
+  auto exactProblem = exactUdaProblem();
+  if (!exactProblem.empty()) out << "Note: exact estimates are ignored.  " << exactProblem << '\n';
   for (auto& warning : estimateWarnings()) out << "Note: " << warning << '\n';
   output = out.str();
   return 0;
@@ -328,8 +330,8 @@ int CmdSchedule::init(const std::vector<std::string>& args, std::string& output)
       "the format.\n",
       path, which == "example" ? ", from the example of a university student's week" : "");
 
-  auto udaProblem = estimateUdaProblem();
-  if (!udaProblem.empty()) output += "\nNote: " + udaProblem + '\n';
+  for (auto& problem : {estimateUdaProblem(), exactUdaProblem()})
+    if (!problem.empty()) output += "\nNote: " + problem + '\n';
   return 0;
 }
 
@@ -449,8 +451,8 @@ int CmdSchedule::check(const std::vector<std::string>& args, std::string& output
           tryFilter(slot.filter, slot.line, "slot '" + slot.id + "'", true);
   }
 
-  auto udaProblem = estimateUdaProblem();
-  if (!udaProblem.empty()) tmpl.problems.push_back({0, udaProblem});
+  for (auto& problem : {estimateUdaProblem(), exactUdaProblem()})
+    if (!problem.empty()) tmpl.problems.push_back({0, problem});
 
   std::stringstream out;
   if (!tmpl.problems.empty()) {

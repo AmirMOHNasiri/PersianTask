@@ -251,7 +251,7 @@ int CmdShow::execute(std::string& output) {
   // PersianTask: the calendar, and the weekly schedule.
   recognized +=
       "calendar dayname.style schedule schedule.default schedule.template schedule.wake "
-      "schedule.sleep schedule.report schedule.estimate.uda schedule.estimate.ask schedule.layout dateformat.schedule "
+      "schedule.sleep schedule.report schedule.estimate.uda schedule.estimate.exact.uda schedule.estimate.ask schedule.layout dateformat.schedule "
       "color.schedule.header color.schedule.now color.schedule.past color.schedule.optional ";
 
   std::vector<std::string> unrecognized;

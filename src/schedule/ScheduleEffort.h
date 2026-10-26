@@ -29,6 +29,13 @@ std::string estimateUdaProblem();
 // estimate UDA is not usable).
 long estimate(const Task&);
 
+// The UDA holding exact estimates, which are planned as they are, without
+// estimate.factor: schedule.estimate.exact.uda, 'exact' by default.  Its
+// problem, and a task's exact estimate, likewise.
+std::string exactUda();
+std::string exactUdaProblem();
+long exactEstimate(const Task&);
+
 // Time tracked on the task with start and stop, including a start still
 // running, from the task's history.
 long tracked(const Task&);
