@@ -8,27 +8,41 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
-## Unreleased
+## 3.5.0-persiantask.5 (2026-10-26)
 
-### The weekly schedule
+### New commands
 
-- Exact estimates: `exact:1.5h` (a second UDA, `exact` by default) is
-  planned as it is, never padded by `estimate.factor`, and shown as
-  `1.5h exact`. The estimate question takes `=1.5h` for one, and
-  `task schedule left` keeps it exact.
-- `task schedule now` says what to work on right now; `peek <slot>` lists a
-  slot's task and the next ones it would take, with why some are not
-  planned there; `next <slot>` gives a slot its next candidate for the week;
-  `open <slot>` lets a fixed slot take a task this week, for a cancelled
-  class.
+- `task schedule now`: what to work on right now. In a break or a class, the
+  best task for the moment, and how to take it.
+- `task schedule peek <slot>`: a slot's task, then the next tasks it would
+  take, with why some are not planned there now.
+- `task schedule next <slot>`: gives a slot its next candidate for the week;
+  repeat it to go on down the list.
+- `task schedule open <slot> [HH:MM]`: lets a fixed slot take a task this
+  week, for a class that is cancelled or ends early.
+
+### The template
+
 - A slot can list several categories in order of priority, such as
   `study ds,algo`: when its own category has nothing to do, it takes the next
-  one's task, before the fallback chain, and never a task another slot's own
-  category was meant for.
+  one's task, before the fallback chain, and never a task that another slot's
+  own category was meant for.
 - `task schedule check` warns when a category's filter uses a virtual tag in
   lower case, such as `+pending`, which is an ordinary tag that no task has
   (virtual tags are in capitals: `+PENDING`), and notes the categories that
   slots use and no pending task matches.
+
+### Estimates
+
+- Exact estimates: `exact:1.5h` is planned as it is, never padded by
+  `estimate.factor`, for work whose length you know, such as a lecture video.
+  It shows as `1.5h exact`. When `task add` asks for an estimate, `=1.5h`
+  gives an exact one, and `task schedule left` keeps it exact.
+
+### Documentation
+
+- The README now lists every schedule command with an example, and every
+  template section, setting and slot option.
 
 ## 3.5.0-persiantask.4 (2026-10-24)
 
