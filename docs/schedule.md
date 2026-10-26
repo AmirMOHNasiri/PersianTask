@@ -164,6 +164,40 @@ On a narrow terminal, where the full table would not fit, the week (and today's 
 
 A later week is planned as if the work planned before it were done: the weeks from this one up to it are planned in order, and the estimated time each of them plans is not planned again. So if this week plans 12 of a task's 16 hours, next week plans the other 4, and its `Estimate` column says `4h left`; once those are planned, the task takes no more slots that week, and slots with nothing else to do stay free. A note under such a week says so. Plans are computed every time you look, from your tasks as they are then, so changing a task (its due date, its estimate, finishing it) changes the plan at once.
 
+### task schedule now
+
+```
+task schedule now
+```
+
+What to work on right now: the current slot's task, with how to start it. In a fixed slot, a break, or a slot with nothing to do, the best task for the moment, and how to take it: `task schedule open` if a class is cancelled, or `task <id> start`. Between slots, it names the next one.
+
+### task schedule peek
+
+```
+task schedule peek thu-ds
+task schedule peek thu-ds 10
+```
+
+A slot's task, marked `*`, then the next tasks it would take (5, or the number given), in the planner's order: its own category, its secondary categories, then its fallback chain, with the tasks [behind pace](#pacing) first in each. Each row says where the task would come from, its estimate and pace, and why it is not planned there now, if so: due before the slot, its estimate already planned, its slots for that day used, or `max.per-day` reached. For a fixed slot, it shows what the slot would take if it were [open](#task-schedule-open).
+
+### task schedule next
+
+```
+task schedule next thu-ds
+```
+
+Gives the slot its next candidate, as listed by `peek`, for this week (or the week given), recorded like `assign`. Repeating it goes on down the list, past the tasks already passed over; at the end of the list, `task schedule reset thu-ds` starts it over. `task schedule undo` goes back one.
+
+### task schedule open
+
+```
+task schedule open sun-db
+task schedule open sun-db 10:00
+```
+
+For a class that is cancelled or ends early: this week, the fixed slot takes tasks like a study slot of its category (or from its fallback chain, if it has none), from the time given, by default now if the slot is today, or else the whole slot. `task schedule undo` or `reset` closes it again.
+
 ### task schedule swap
 
 ```

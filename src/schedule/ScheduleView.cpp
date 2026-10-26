@@ -128,7 +128,7 @@ static std::string quarterHours(long seconds) {
 }
 
 // What the plan means for the task's deadline, if anything.
-static std::string paceOf(const Assignment& assignment, const Planner& planner) {
+std::string paceOf(const Assignment& assignment, const Planner& planner) {
   if (!assignment.task) return "";
   auto& task = *assignment.task;
   if (planner.overdue(task)) return "overdue";
@@ -177,7 +177,7 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
       case Source::rest:
         // A rest slot is a break by design; a slot whose fallback chain ended
         // in rest found nothing to do.
-        if (slot.kind != Kind::rest) {
+        if (instance.kind != Kind::rest) {
           row.task = slot.optional ? "" : "nothing to do";
           row.from = "rest (fallback)";
           row.empty = true;

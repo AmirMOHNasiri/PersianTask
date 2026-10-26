@@ -106,9 +106,11 @@ void checkMovable(const Instance& instance) {
 
 // Slots that can take work: not fixed, rest, or events.
 void checkTakesWork(const Instance& instance, const std::string& what) {
-  if (instance.slot->kind == Kind::fixed)
-    throw format("'{1}' is a fixed slot, which can never be {2}.", instance.id, what);
-  if (instance.slot->kind == Kind::rest)
+  if (instance.kind == Kind::fixed)
+    throw format("'{1}' is a fixed slot, which can never be {2}.  If its class is cancelled, "
+                 "'task schedule open {1}' lets it take a task this week.",
+                 instance.id, what);
+  if (instance.kind == Kind::rest)
     throw format("'{1}' is a rest slot, which never takes work.", instance.id);
 }
 
@@ -393,7 +395,7 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
   std::vector<Candidate> eligible;
   for (auto instance : candidates) {
     auto& slot = *instance->slot;
-    if (instance->event || slot.kind == Kind::fixed || slot.kind == Kind::rest ||
+    if (instance->event || instance->kind == Kind::fixed || instance->kind == Kind::rest ||
         slot.isProtected || !instance->pinnedTask.empty() || !instance->pinnedFilter.empty())
       continue;
     if (instance->day.toEpoch() + instance->start * 60 < now) continue;
@@ -865,6 +867,295 @@ int CmdSchedule::left(const std::vector<std::string>& args, std::string& output)
       tracked > 0 ? formatHours(tracked) : "0h",
       previous > 0 ? format("  It was {1}; 'task undo' restores it.", formatHours(previous))
                    : "");
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+namespace {
+
+std::string describeSource(Source source, const std::string& via) {
+  switch (source) {
+    case Source::secondary:
+      return via + " (secondary)";
+    case Source::fallback:
+      return via + " (fallback)";
+    default:
+      return via;
+  }
+}
+
+const Assignment* assignmentOf(const WeekPlan& plan, const Instance& instance) {
+  for (auto& assignment : plan.assignments)
+    if (assignment.instance == &instance) return &assignment;
+  return nullptr;
+}
+
+std::string taskName(const Task& task) {
+  return format("task {1}, '{2}'", task.id, task.get("description"));
+}
+
+}  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+// peek <slot> [<n>] [week]
+//
+// The slot's task, and the next n tasks it would take, in the planner's order.
+int CmdSchedule::peek(std::vector<std::string> args, std::string& output) {
+  auto day = takeWeek(args);
+  if (args.empty() || args.size() > 2) throw usageOf("peek");
+  int count = 5;
+  if (args.size() == 2) {
+    if (args[1].empty() || !std::all_of(args[1].begin(), args[1].end(), ::isdigit))
+      throw usageOf("peek");
+    count = std::stoi(args[1]);
+  }
+
+  Template tmpl;
+  loadValidTemplate(tmpl);
+  State state;
+  state.load();
+  WeekPlan plan(tmpl, day, &state);
+  auto& instance = slotArg(plan.week, args[0]);
+  auto current = assignmentOf(plan, instance);
+
+  std::stringstream out;
+  out << format("{1} ({2})", instance.id,
+                describePlace(instance.day, instance.start, instance.end));
+  if (instance.kind == Kind::fixed || instance.kind == Kind::rest)
+    out << format(" is a {1} slot.  Were it to take tasks{2}, it would take:\n\n",
+                  kindName(instance.kind),
+                  instance.kind == Kind::fixed
+                      ? format(" ('task schedule open {1}')", instance.id)
+                      : std::string());
+  else
+    out << ":\n\n";
+
+  Table table;
+  table.width(Context::getContext().getWidth());
+  table.withColor(Context::getContext().color());
+  table.add("");
+  table.add("ID", false);
+  table.add("Task");
+  table.add("From");
+  table.add("Estimate");
+  table.add("Pace");
+  table.add("Note");
+  setHeaderUnderline(table);
+
+  auto row = [&](const std::string& mark, const Task& task, const std::string& from,
+                 const std::string& note) {
+    auto r = table.addRow();
+    Assignment a;
+    a.instance = &instance;
+    a.task = task;
+    table.set(r, 0, mark);
+    table.set(r, 1, std::to_string(task.id));
+    table.set(r, 2, task.get("description"));
+    table.set(r, 3, from);
+    table.set(r, 4, describeEffort(plan.planner.effort(task), plan.planner.plannedBefore(task)));
+    table.set(r, 5, note == "due before this slot" ? "" : paceOf(a, plan.planner));
+    table.set(r, 6, note);
+  };
+
+  std::string currentUuid;
+  if (current && current->task) {
+    currentUuid = current->task->get("uuid");
+    auto from = current->source == Source::pinned     ? std::string("assigned")
+                : current->source == Source::borrowed ? std::string("borrowed")
+                                                      : describeSource(current->source,
+                                                                       current->via);
+    row("*", *current->task, from, "in the slot now");
+  }
+  // Tasks passed over with 'next' this week say so.
+  std::vector<std::string> passed;
+  if (auto o = state.find(plan.week.start.toEpoch(), instance.id)) passed = o->passed;
+  int shown = 0;
+  for (auto& candidate : plan.planner.candidates(instance)) {
+    if (shown == count) break;
+    auto uuid = candidate.task.get("uuid");
+    if (uuid == currentUuid) continue;
+    auto note = candidate.why;
+    if (std::find(passed.begin(), passed.end(), uuid) != passed.end())
+      note = "passed over with 'next'" + (note.empty() ? "" : "; " + note);
+    row(std::to_string(++shown), candidate.task,
+        describeSource(candidate.source, candidate.via), note);
+  }
+
+  if (table.rows() == 0)
+    out << "No task matches its categories or its fallback chain.\n";
+  else
+    out << table.render() << "\n'task schedule next " << instance.id
+        << "' gives the slot its next candidate, for this week.\n";
+  output = out.str();
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// next <slot> [week]
+//
+// Gives the slot its next candidate, for the week: like assign, but going on
+// down the list each time it is repeated.
+int CmdSchedule::next(std::vector<std::string> args, std::string& output) {
+  Change change;
+  auto day = takeWeek(args);
+  if (args.size() != 1) throw usageOf("next");
+
+  WeekPlan plan(change.tmpl, day, &change.state);
+  auto& instance = slotArg(plan.week, args[0]);
+  checkTakesWork(instance, "given a task");
+  auto current = assignmentOf(plan, instance);
+
+  auto& o = change.state.at(plan.week.start.toEpoch(), instance.id);
+  std::string currentUuid = current && current->task ? current->task->get("uuid") : "";
+  if (!currentUuid.empty() &&
+      std::find(o.passed.begin(), o.passed.end(), currentUuid) == o.passed.end())
+    o.passed.push_back(currentUuid);
+
+  // The first candidate not passed over yet, which may be planned before its
+  // due time; limits per day do not hold for a task given by hand.
+  const Candidate* chosen = nullptr;
+  auto candidates = plan.planner.candidates(instance);
+  for (auto& candidate : candidates) {
+    auto uuid = candidate.task.get("uuid");
+    if (std::find(o.passed.begin(), o.passed.end(), uuid) != o.passed.end()) continue;
+    if (candidate.why == "due before this slot") continue;
+    chosen = &candidate;
+    break;
+  }
+  if (!chosen)
+    throw format("No other task for {1}: 'task schedule reset {1}' starts the list over.",
+                 instance.id);
+
+  o.task = chosen->task.get("uuid");
+  o.filter.clear();
+  o.skipped = false;
+  o.borrowed = false;
+
+  auto description =
+      format("Next for {1} ({2}): {3}, from {4}{5}", instance.id,
+             describePlace(instance.day, instance.start, instance.end), taskName(chosen->task),
+             describeSource(chosen->source, chosen->via),
+             current && current->task ? ", instead of " + taskName(*current->task) : "");
+  change.commit(description);
+  output = description + ".\n";
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// open <slot> [HH:MM] [week]
+//
+// A fixed slot takes tasks this week, from the time given: by default, now if
+// it is today, or else the whole slot.  For a class that is cancelled or ends
+// early.
+int CmdSchedule::open(std::vector<std::string> args, std::string& output) {
+  Change change;
+  auto day = takeWeek(args);
+  if (args.empty() || args.size() > 2) throw usageOf("open");
+
+  Week week(change.tmpl, day, &change.state);
+  auto& instance = slotArg(week, args[0]);
+  if (instance.opened) throw format("'{1}' is open already, this week.", instance.id);
+  if (instance.kind != Kind::fixed)
+    throw format("'{1}' is a {2} slot, which takes tasks already.", instance.id,
+                 kindName(instance.kind));
+
+  int from = instance.start;
+  auto current = schedule::now();
+  if (args.size() == 2) {
+    from = parseTime(args[1]);
+    if (from == -1) throw format("'{1}' is not a time, such as 10:00.", args[1]);
+    if (from < instance.start || from >= instance.end)
+      throw format("{1} is not within {2} ({3}-{4}).", args[1], instance.id,
+                   formatTime(instance.start), formatTime(instance.end));
+  } else if (instance.day.sameDay(current)) {
+    from = std::max(from, current.hour() * 60 + current.minute());
+    if (from >= instance.end) throw format("'{1}' is over already, today.", instance.id);
+  }
+
+  change.state.at(week.start.toEpoch(), instance.id).opened = from;
+  auto description = format("Opened {1} ({2}) for tasks", instance.id,
+                            describePlace(instance.day, from, instance.end));
+  change.commit(description);
+  output = description + ".  'task schedule undo' closes it again.\n";
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// now
+//
+// What to work on now: the current slot's task, or the best candidate.
+int CmdSchedule::now(std::string& output) {
+  Template tmpl;
+  loadValidTemplate(tmpl);
+  State state;
+  state.load();
+
+  auto current = schedule::now();
+  WeekPlan plan(tmpl, current.startOfDay(), &state);
+  int minutes = current.hour() * 60 + current.minute();
+
+  const Assignment* here = nullptr;
+  const Assignment* later = nullptr;
+  for (auto& assignment : plan.assignments) {
+    auto& instance = *assignment.instance;
+    if (!instance.day.sameDay(current)) continue;
+    if (instance.start <= minutes && minutes < instance.end) here = &assignment;
+    if (instance.start > minutes && !later) later = &assignment;
+  }
+
+  std::stringstream out;
+  if (!here) {
+    out << "No slot now.";
+    if (later)
+      out << format("  Next: {1} at {2}{3}.", later->instance->id,
+                    formatTime(later->instance->start),
+                    later->task ? ", " + taskName(*later->task) : std::string());
+    out << '\n';
+    output = out.str();
+    return 0;
+  }
+
+  auto& instance = *here->instance;
+  auto place = format("{1}, {2}-{3}", instance.id, formatTime(instance.start),
+                      formatTime(instance.end));
+  if (here->task) {
+    auto& task = *here->task;
+    out << format("Now ({1}): {2}, from {3}.\n", place, taskName(task),
+                  here->source == Source::pinned ? "assigned" : describeSource(here->source, here->via));
+    if (!task.has("start"))
+      out << format("Start it with 'task {1} start'; 'task schedule next {2}' for another.\n",
+                    task.id, instance.id);
+    output = out.str();
+    return 0;
+  }
+
+  // A fixed, rest, event or empty slot: the best candidate, were it to work.
+  std::string what = instance.event                    ? "an event"
+                     : instance.kind == Kind::fixed     ? "a fixed slot"
+                     : instance.kind == Kind::rest      ? "a break"
+                                                        : "a slot with nothing to do";
+  out << format("Now ({1}): {2}.\n", place, what);
+  // The first it could take, or else the first.
+  std::vector<Candidate> candidates;
+  if (!instance.event) candidates = plan.planner.candidates(instance);
+  const Candidate* best = candidates.empty() ? nullptr : &candidates.front();
+  for (auto& candidate : candidates)
+    if (candidate.why.empty()) {
+      best = &candidate;
+      break;
+    }
+  if (best) {
+    out << format("The best task for it: {1}, from {2}{3}.\n", taskName(best->task),
+                  describeSource(best->source, best->via),
+                  best->why.empty() ? "" : " (" + best->why + ")");
+    if (instance.kind == Kind::fixed && !instance.event)
+      out << format("If the class is cancelled: 'task schedule open {1}'; or start it with 'task "
+                    "{2} start'.\n",
+                    instance.id, best->task.id);
+    else
+      out << format("Start it with 'task {1} start'.\n", best->task.id);
+  }
+  output = out.str();
   return 0;
 }
 

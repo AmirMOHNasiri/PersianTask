@@ -164,6 +164,13 @@ int CmdSchedule::execute(std::string& output) {
   if (name == "review") return review(args, output);
   if (name == "mode") return mode(args, output);
   if (name == "event") return event(args, output);
+  if (name == "peek") return peek(args, output);
+  if (name == "next") return next(args, output);
+  if (name == "open") return open(args, output);
+  if (name == "now") {
+    if (!args.empty()) throw usage();
+    return now(output);
+  }
   if (name == "undo") {
     if (!args.empty()) throw usage();
     return undo(output);

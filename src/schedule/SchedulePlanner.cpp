@@ -94,6 +94,7 @@ Week::Week(const Template& tmpl, const Datetime& day, const State* state)
       instance.number = static_cast<int>(instances.size()) + 1;
       instance.id = slot->id;
       instance.slot = slot;
+      instance.kind = slot->kind;
       instance.day = midnight;
       instance.start = slot->start;
       instance.end = slot->end;
@@ -176,6 +177,11 @@ Week::Week(const Template& tmpl, const Datetime& day, const State* state)
           instance->start = o.start;
           instance->end = o.end;
         }
+        if (o.opened >= 0 && instance->kind == Kind::fixed) {
+          instance->opened = true;
+          instance->kind = Kind::study;
+          instance->start = std::max(instance->start, std::min(o.opened, instance->end - 1));
+        }
         instance->skipped = o.skipped;
         instance->pinnedTask = o.task;
         instance->pinnedFilter = o.filter;
@@ -197,6 +203,7 @@ Week::Week(const Template& tmpl, const Datetime& day, const State* state)
       Instance instance;
       instance.id = slot.id;
       instance.slot = &_eventSlots.back();
+      instance.kind = Kind::fixed;
       instance.event = &event;
       instance.day = Datetime(event.day);
       instance.start = event.start;
@@ -662,7 +669,7 @@ void Planner::computePaces(const Week& week) {
 
     for (auto& instance : current.instances) {
       auto& slot = *instance.slot;
-      if (instance.event || slot.kind == Kind::fixed || slot.kind == Kind::rest ||
+      if (instance.event || instance.kind == Kind::fixed || instance.kind == Kind::rest ||
           !instance.pinnedTask.empty() || !instance.pinnedFilter.empty())
         continue;
 
@@ -783,7 +790,7 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     return instance.day.toEpoch() + instance.end * 60L <= reference;
   };
   auto takesTasks = [&](const Instance& instance) {
-    return instance.slot->kind != Kind::fixed && instance.slot->kind != Kind::rest &&
+    return instance.kind != Kind::fixed && instance.kind != Kind::rest &&
            !ended(instance);
   };
   auto categoryOfSlot = [](const Instance& instance) {
@@ -796,10 +803,10 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     assignment.instance = &instance;
     if (instance.event)
       assignment.source = Source::event;
-    else if (instance.slot->kind == Kind::fixed) {
+    else if (instance.kind == Kind::fixed) {
       assignment.source = Source::fixed;
       assignment.via = instance.slot->category;
-    } else if (instance.slot->kind == Kind::rest)
+    } else if (instance.kind == Kind::rest)
       assignment.source = Source::rest;
     else if (ended(instance)) {
       assignment.source = Source::past;
@@ -841,6 +848,7 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     auto pa = pace(a), pb = pace(b);
     return pa->laxity != pb->laxity ? pa->laxity < pb->laxity : pa->urgency > pb->urgency;
   });
+  _paced = paced;
   auto behind = [&](const Task& task) {
     auto p = pace(task);
     return p && planned(task) < p->quota;
@@ -869,8 +877,8 @@ std::vector<Assignment> Planner::plan(const Week& week) {
   if (_template.pacing) {
     std::map<std::string, long> ownMinutes, given;
     for (auto& assignment : assignments)
-      if (!assignment.instance->event && assignment.instance->slot->kind != Kind::fixed &&
-          assignment.instance->slot->kind != Kind::rest)
+      if (!assignment.instance->event && assignment.instance->kind != Kind::fixed &&
+          assignment.instance->kind != Kind::rest)
         ownMinutes[categoryOfSlot(*assignment.instance)] += assignment.instance->minutes();
 
     for (auto& task : paced) {
@@ -1053,6 +1061,68 @@ std::vector<Assignment> Planner::plan(const Week& week) {
   }
 
   return assignments;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Why the planner would not give the task this slot now, or "" if it would.
+std::string Planner::unavailable(const Task& task, const Instance& instance) {
+  if (!eligible(task, instance)) return "due before this slot";
+  auto uuid = task.get("uuid");
+  if (_template.maxPerDay > 0 && !critical(uuid)) {
+    auto used = _usedTime[{uuid, instance.day.toEpoch()}];
+    if (used > 0 && used + instance.minutes() * 60L > _template.maxPerDay)
+      return "max.per-day reached that day";
+  }
+  if (effort(task).remaining > 0) return left(task) > 0 ? "" : "its estimate is planned";
+  return _used[{uuid, instance.day.toEpoch()}] < _template.unestimatedPerDay
+             ? ""
+             : "has its slots for that day";
+}
+
+////////////////////////////////////////////////////////////////////////////////
+std::vector<Candidate> Planner::candidates(const Instance& instance) {
+  std::vector<Candidate> result;
+  std::set<std::string> seen;
+  auto add = [&](const Task& task, Source source, const std::string& via) {
+    if (!seen.insert(task.get("uuid")).second) return;
+    result.push_back({task, source, via, unavailable(task, instance)});
+  };
+  auto behind = [&](const Task& task) {
+    auto p = pace(task);
+    return p && planned(task) < p->quota;
+  };
+
+  // In each, the tasks behind pace first, as the passes take them.
+  auto category = instance.modeCategory.empty() ? instance.slot->category : instance.modeCategory;
+  auto own = homeFilter(instance);
+  if (!instance.skipped && !own.empty()) {
+    for (auto& task : _paced)
+      if (behind(task) && contains(own, task.get("uuid"))) add(task, Source::slot, category);
+    for (auto& task : matching(own)) add(task, Source::slot, category);
+  }
+  for (auto& name : instance.slot->secondary)
+    if (auto c = _template.category(name)) {
+      for (auto& task : _paced)
+        if (behind(task) && contains(c->filter, task.get("uuid")))
+          add(task, Source::secondary, name);
+      for (auto& task : matching(c->filter)) add(task, Source::secondary, name);
+    }
+
+  std::vector<const Category*> chain;
+  for (auto& step : _template.fallbackFor(*instance.slot)) {
+    if (step == "rest") break;
+    if (auto c = _template.category(step)) chain.push_back(c);
+  }
+  for (auto& task : _paced)
+    if (behind(task))
+      for (auto c : chain)
+        if (contains(c->filter, task.get("uuid"))) {
+          add(task, Source::fallback, c->name);
+          break;
+        }
+  for (auto c : chain)
+    for (auto& task : matching(c->filter)) add(task, Source::fallback, c->name);
+  return result;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -61,6 +61,7 @@ class NowGuard {
 // A slot on a particular day, after this week's changes.
 struct Instance {
   int number{0};  // Position in the template's week, starting at 1.  Events have 0.
+  Kind kind{Kind::study};  // The slot's, or study for a fixed slot opened this week.
   std::string id;  // The slot id, or e<N> for event N.
   const Slot* slot{nullptr};
   const Event* event{nullptr};
@@ -73,6 +74,7 @@ struct Instance {
   std::string mode;
 
   bool moved{false};
+  bool opened{false};  // A fixed slot taking tasks this week ('open').
   bool skipped{false};
   std::string pinnedTask;  // UUID.
   std::string pinnedFilter;
@@ -196,6 +198,14 @@ class Horizon {
   std::map<std::string, bool> _independent;  // Of the time, by filter.
 };
 
+// A task a slot could take, in the order the planner tries them.
+struct Candidate {
+  Task task;
+  Source source{Source::slot};  // slot (its own category), secondary or fallback.
+  std::string via;              // The category.
+  std::string why;              // Why it would not be planned there now, if so.
+};
+
 struct Assignment {
   const Instance* instance{nullptr};
   std::optional<Task> task;
@@ -257,6 +267,12 @@ class Planner {
   // Time planned for it in the weeks before this one, for a later week.
   long plannedBefore(const Task&) const;
 
+  // After plan(): the tasks the slot could take, in the order the planner
+  // tries them: its own category, its secondary ones, its fallback chain;
+  // tasks behind pace first in each.  A fixed or rest slot is taken as a
+  // study slot of its category, if any.
+  std::vector<Candidate> candidates(const Instance&);
+
   // After plan(): due dates by which the work due exceeds the time of the
   // slots that can hold it, counting each slot once, earliest first.
   std::vector<Overload> overloads;
@@ -264,6 +280,7 @@ class Planner {
  private:
   long left(const Task&);
   long defaultEstimate(const Task&);
+  std::string unavailable(const Task&, const Instance&);
   void computePaces(const Week&);
   bool critical(const std::string& uuid) const;
   bool contains(const std::string& filter, const std::string& uuid);
@@ -285,6 +302,7 @@ class Planner {
   std::map<std::string, long> _consumed;                 // Planned by plan().
   std::map<std::pair<std::string, time_t>, long> _usedTime;  // Seconds per task per day.
   std::map<std::string, Pace> _paces;                        // By uuid.
+  std::vector<Task> _paced;  // After plan(): paced tasks, least laxity first.
   std::map<std::string, std::set<std::string>> _matchSets;   // Of matching(), by filter.
   std::shared_ptr<Horizon> _horizon;
 };

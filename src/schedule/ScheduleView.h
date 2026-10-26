@@ -52,6 +52,9 @@ std::string renderHours(const Template&, const std::vector<Assignment>&, Planner
 // For a later week, before is the time planned in the weeks before it.
 std::string describeEffort(const Effort&, long before = 0);
 
+// The Pace column of an assignment: on track, behind, overdue...
+std::string paceOf(const Assignment&, const Planner&);
+
 // The notes of a week and its plan, one line each, starting with overloads.
 std::string renderNotes(const Week&, const Planner&);
 std::string renderOverloads(const Planner&);

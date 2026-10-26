@@ -33,6 +33,12 @@ struct Override {
   std::string filter;  // Pinned filter.
   bool borrowed{false};  // The pinned task borrowed this slot.
 
+  // 'next': the tasks passed over, by UUID, so that it goes on down the list.
+  std::vector<std::string> passed;
+
+  // 'open': a fixed slot taking tasks this week, from this time (minutes).
+  int opened{-1};
+
   bool empty() const;
 };
 

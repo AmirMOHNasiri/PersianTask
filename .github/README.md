@@ -161,6 +161,10 @@ Shanbe 25 Mehr   1  07:00-07:30  sat-review      4  Term project              te
 | `task schedule skip <slot>` | Skips a slot's own work, this week |
 | `task schedule assign <slot> <task \| filter>` | Pins work to a slot, this week |
 | `task schedule reset <slot \| week>` | Undoes this week's changes |
+| `task schedule now` | What to work on right now, or the best task for a break or a cancelled class |
+| `task schedule peek <slot> [n]` | A slot's task, and the next tasks it would take, with why |
+| `task schedule next <slot>` | Gives a slot its next candidate, this week |
+| `task schedule open <slot> [HH:MM]` | Lets a fixed slot take a task this week, for a cancelled class |
 | `task schedule borrow <task> <hours>` | Gives a task more time this week, from the slots the template allows |
 | `task schedule left <task> <hours>` | Corrects a wrong estimate: the hours the task still needs |
 | `task schedule review [last]` | Weekly review: planned and tracked hours, floors, the buffer, deadlines |

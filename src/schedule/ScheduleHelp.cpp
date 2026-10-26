@@ -106,6 +106,37 @@ const std::vector<HelpEntry>& helpEntries() {
        "floor.  Shows which slots were taken; 'task schedule undo' gives them back.",
        {"task schedule borrow 12 2", "task schedule borrow 12 1.5h next"}},
 
+      {"now", "",
+       "What to work on right now",
+       "The current slot's task.  In a fixed slot, a break, or a slot with nothing to\n"
+       "do, the best task for the moment, with how to take it: 'task schedule open'\n"
+       "for a cancelled class, or 'task <id> start'.",
+       {"task schedule now"}},
+
+      {"peek", "<slot> [<n>] [next | prev | week:<date>]",
+       "A slot's task, and the next tasks it would take",
+       "Lists the slot's task, then the next n (5 by default) tasks it would take, in\n"
+       "the planner's order: its own category, its secondary categories, then its\n"
+       "fallback chain, tasks behind pace first in each.  Each says where it comes\n"
+       "from, its pace, and why it is not planned there now, if so.  For a fixed slot,\n"
+       "what it would take if it were open.",
+       {"task schedule peek thu-ds", "task schedule peek 12 10"}},
+
+      {"next", "<slot> [next | prev | week:<date>]",
+       "Gives a slot its next candidate, for one week",
+       "Replaces the slot's task with the next one 'peek' lists, as 'assign' would.\n"
+       "Repeating it goes on down the list.  'task schedule reset <slot>' or 'undo'\n"
+       "goes back.",
+       {"task schedule next thu-ds"}},
+
+      {"open", "<slot> [HH:MM] [next | prev | week:<date>]",
+       "Lets a fixed slot take a task, for one week",
+       "For a class that is cancelled or ends early: this week, the fixed slot takes\n"
+       "tasks like a study slot of its category (or from the fallback chain), from\n"
+       "the time given, by default now if it is today, or else the whole slot.\n"
+       "'task schedule undo' closes it again.",
+       {"task schedule open sun-db", "task schedule open sun-db 10:00"}},
+
       {"left", "<task> <hours>",
        "Corrects a task's estimate: the hours it still needs",
        "When a task needs more (or less) than its estimate says, give the hours it\n"

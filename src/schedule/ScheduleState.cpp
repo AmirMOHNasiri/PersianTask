@@ -107,7 +107,9 @@ std::unique_ptr<json::value> parse(const std::string& contents, const std::strin
 }  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
-bool Override::empty() const { return !moved && !skipped && task.empty() && filter.empty(); }
+bool Override::empty() const {
+  return !moved && !skipped && task.empty() && filter.empty() && passed.empty() && opened < 0;
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -157,6 +159,12 @@ std::string State::toJSON() const {
       if (!o.task.empty()) fields.push_back("\"task\": " + quote(o.task));
       if (o.borrowed) fields.push_back("\"borrowed\": true");
       if (!o.filter.empty()) fields.push_back("\"filter\": " + quote(o.filter));
+      if (!o.passed.empty()) {
+        std::string list;
+        for (auto& uuid : o.passed) list += (list.empty() ? "" : ", ") + quote(uuid);
+        fields.push_back("\"passed\": [" + list + "]");
+      }
+      if (o.opened >= 0) fields.push_back("\"open\": " + quote(formatTime(o.opened)));
 
       std::string joined;
       for (auto& field : fields) joined += (joined.empty() ? "" : ", ") + field;
@@ -216,6 +224,12 @@ void State::fromJSON(const std::string& contents) {
         o.task = text(slot.second, "task");
         o.borrowed = flag(slot.second, "borrowed");
         o.filter = text(slot.second, "filter");
+        auto passed = member(slot.second, "passed");
+        if (passed && passed->type() == json::j_array)
+          for (auto v : static_cast<json::array*>(passed)->_data)
+            if (v->type() == json::j_string)
+              o.passed.push_back(json::decode(static_cast<json::string*>(v)->_data));
+        if (!text(slot.second, "open").empty()) o.opened = minutes(slot.second, "open");
         weeks[start][slot.first] = o;
       }
     }

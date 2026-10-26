@@ -46,6 +46,12 @@ class CmdSchedule : public Command {
 
   // Estimates.
   int left(const std::vector<std::string>&, std::string&);
+
+  // A slot's candidates, in CmdScheduleEdit.cpp.
+  int peek(std::vector<std::string>, std::string&);
+  int next(std::vector<std::string>, std::string&);
+  int open(std::vector<std::string>, std::string&);
+  int now(std::string&);
 };
 
 #endif

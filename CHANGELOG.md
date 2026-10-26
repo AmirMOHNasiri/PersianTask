@@ -12,6 +12,11 @@ and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
 ### The weekly schedule
 
+- `task schedule now` says what to work on right now; `peek <slot>` lists a
+  slot's task and the next ones it would take, with why some are not
+  planned there; `next <slot>` gives a slot its next candidate for the week;
+  `open <slot>` lets a fixed slot take a task this week, for a cancelled
+  class.
 - A slot can list several categories in order of priority, such as
   `study ds,algo`: when its own category has nothing to do, it takes the next
   one's task, before the fallback chain, and never a task another slot's own

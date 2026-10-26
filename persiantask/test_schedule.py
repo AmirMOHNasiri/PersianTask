@@ -2195,6 +2195,120 @@ def test_secondary_categories(task):
         check_true("check: " + message, code != 0 and message in out, out + err)
 
 
+CANDIDATES = """
+[settings]
+fallback = soon rest
+
+[categories]
+ds    -  project:ds
+algo  -  project:algo
+db    -  project:db
+soon  -  due.before:now+7d
+
+[shanbe]
+10:00-12:00  sat-db     fixed  db
+12:00-13:00  sat-lunch  rest   -
+14:00-16:00  sat-ds     study  ds,algo
+"""
+MORNING = "rc.schedule.now:2026-10-17T10:30:00"
+
+
+def peek_rows(out):
+    """[(mark, id, description, rest of the row)] of a peek table."""
+    rows = []
+    for line in out.splitlines():
+        match = re.match(r"^([*\d]+)\s+(\d+) (\S+)\s*(.*)$", line)
+        if match:
+            rows.append(match.groups())
+    return rows
+
+
+def candidate_tasks(task):
+    write_template(task, CANDIDATES)
+    task.out("add", "D1", "project:ds", "priority:H")
+    task.out("add", "D2", "project:ds")
+    task.out("add", "A1", "project:algo")
+    task.out("add", "S1", "due:2026-10-19")
+    task.out("add", "B1", "project:db")
+    task.out("add", "Early", "due:2026-10-17T13:00")  # Due before sat-ds.
+
+
+def test_peek(task):
+    candidate_tasks(task)
+    rows = peek_rows(task.out(MORNING, "schedule", "peek", "sat-ds"))
+    check("The slot's task, then its own category, secondary, fallback",
+          [(r[0], r[2]) for r in rows],
+          [("*", "D1"), ("1", "D2"), ("2", "A1"), ("3", "Early"), ("4", "S1")])
+    check_true("Sources", rows[2][3].startswith("algo (secondary)") and
+               rows[3][3].startswith("soon (fallback)"), rows)
+    check_true("Why a task would not be planned there", "due before this slot" in rows[3][3], rows)
+    check("peek <slot> <n>", len(peek_rows(task.out(MORNING, "schedule", "peek", "sat-ds", "2"))),
+          3)
+    out = task.out(MORNING, "schedule", "peek", "sat-db")
+    check_true("A fixed slot: what it would take, open",
+               "is a fixed slot.  Were it to take tasks ('task schedule open sat-db')" in out and
+               peek_rows(out)[0][2] == "B1", out)
+
+
+def test_next(task):
+    candidate_tasks(task)
+    for expected in ("D2", "A1", "S1"):
+        out = task.out(MORNING, "schedule", "next", "sat-ds")
+        check_true("next gives " + expected, "'{}'".format(expected) in out.split("instead")[0],
+                   out)
+    found = slots(task.out(MORNING, "schedule", "week"))
+    check("Recorded like assign", found["sat-ds"][1:], ("S1", "assigned"))
+    rows = peek_rows(task.out(MORNING, "schedule", "peek", "sat-ds"))
+    check_true("peek marks the tasks passed over", "passed over with 'next'" in rows[1][3], rows)
+    code, out, err = task.run(MORNING, "schedule", "next", "sat-ds")
+    check_true("At the end of the list, it says how to start over",
+               code != 0 and "reset sat-ds' starts the list over" in err, err)
+    task.out(MORNING, "schedule", "undo")
+    check("undo goes back one", slots(task.out(MORNING, "schedule", "week"))["sat-ds"][1], "A1")
+    task.out(MORNING, "schedule", "reset", "sat-ds")
+    check("reset starts over", slots(task.out(MORNING, "schedule", "week"))["sat-ds"][1], "D1")
+    code, out, err = task.run(MORNING, "schedule", "next", "sat-db")
+    check_true("A fixed slot must be opened first", code != 0 and "schedule open sat-db" in err,
+               err)
+
+
+def test_open(task):
+    candidate_tasks(task)
+    out = task.out(MORNING, "schedule", "open", "sat-db")
+    check_true("open, from now today", "Opened sat-db (Shanbe 25 Mehr 10:30-12:00)" in out, out)
+    found = slots(task.out(MORNING, "schedule", "week"))
+    check("It takes a task of its category, this week", found["sat-db"][1:], ("B1", "db"))
+    check_true("Only this week", "B1" not in task.out(MORNING, "schedule", "week", "next"), "")
+    code, out, err = task.run(MORNING, "schedule", "open", "sat-db")
+    check_true("Not twice", code != 0 and "is open already" in err, err)
+    task.out(MORNING, "schedule", "undo")
+    check("undo closes it", slots(task.out(MORNING, "schedule", "week"))["sat-db"][2], "fixed")
+
+    out = task.out(MORNING, "schedule", "open", "sat-db", "11:00")
+    check_true("open from a given time", "11:00-12:00" in out, out)
+    for args, message in [(["sat-ds"], "takes tasks already"),
+                          (["sat-db", "09:00"], "is not within sat-db")]:
+        task.out(MORNING, "schedule", "reset", "week")
+        code, out, err = task.run(MORNING, "schedule", "open", *args)
+        check_true("open fails: " + message, code != 0 and message in err, err)
+
+
+def test_now(task):
+    candidate_tasks(task)
+    out = task.out(MORNING, "schedule", "now")
+    check_true("In a fixed slot: the best task, and how to open it",
+               "Now (sat-db, 10:00-12:00): a fixed slot." in out and "'B1'" in out and
+               "task schedule open sat-db" in out, out)
+    out = task.out("rc.schedule.now:2026-10-17T12:30:00", "schedule", "now")
+    check_true("In a break", "a break." in out and "Start it with" in out, out)
+    out = task.out("rc.schedule.now:2026-10-17T14:30:00", "schedule", "now")
+    check_true("In a study slot: its task", "Now (sat-ds, 14:00-16:00): task 1, 'D1', from ds."
+               in out and "task 1 start" in out, out)
+    out = task.out("rc.schedule.now:2026-10-17T13:30:00", "schedule", "now")
+    check_true("Between slots: the next one", "No slot now.  Next: sat-ds at 14:00, task 1, 'D1'."
+               in out, out)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -2219,4 +2333,5 @@ if __name__ == "__main__":
                         test_left_like_modify, test_everyday_partly_replaced,
                         test_project_left_after_earlier_weeks, test_work_conserving,
                         test_compact_layout, test_pace_is_even, test_virtual_tags,
-                        test_secondary_categories, test_help], fresh=True))
+                        test_secondary_categories, test_peek, test_next, test_open,
+                        test_now, test_help], fresh=True))
