@@ -8,6 +8,16 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
+## 3.5.0-persiantask.8 (2026-10-26)
+
+### The weekly schedule
+
+- Fixed: since 3.5.0-persiantask.7, putting the week in order could give a
+  slot of its own category's task to an urgent task that only reaches it
+  through the fallback chain, such as `soon`. A slot's own category comes
+  first again: reordering changes only the order of tasks, never which kind
+  of task a slot holds.
+
 ## 3.5.0-persiantask.7 (2026-10-26)
 
 ### The weekly schedule

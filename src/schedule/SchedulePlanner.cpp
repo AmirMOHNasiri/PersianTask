@@ -1456,7 +1456,9 @@ bool Planner::refill(Assignment& assignment) {
 // leave a better task after a worse one, or a task's second part before
 // another task's first.  So, wherever a better-ranked task sits in a later
 // slot than a worse-ranked one, they change places, if every rule still
-// holds: each slot reaches its new task (own, secondary or fallback); each
+// holds: each slot reaches its new task (own, secondary or fallback), and no
+// less directly than its old one, so an own category's task is never
+// replaced by one from the fallback chain; each
 // task is due after its new slot; no task's useful time this week (planned,
 // up to what it needs) goes down, so pace shares stay as they were; limits
 // per day hold; no category falls below its floor; no task comes before its
@@ -1503,6 +1505,21 @@ void Planner::repair(std::vector<Assignment>& assignments, const Week& week) {
   auto start = [](const Assignment& a) {
     return a.instance->day.toEpoch() + a.instance->start * 60L;
   };
+  // How a slot holds its task: its own category first, then a secondary one,
+  // then the fallback chain.  The repair fixes the order, never who owns a
+  // slot, so neither slot may end up holding its task in a weaker way.
+  auto level = [](Source source) {
+    switch (source) {
+      case Source::slot:
+        return 0;
+      case Source::secondary:
+        return 1;
+      case Source::fallback:
+        return 2;
+      default:
+        return 3;  // Critical, taken in the borrow order.
+    }
+  };
 
   for (int round = 0; round < 3; ++round) {
     bool changed = true;
@@ -1521,6 +1538,7 @@ void Planner::repair(std::vector<Assignment>& assignments, const Week& week) {
           auto toA = reach(better, *a.instance), toB = reach(worse, *b.instance);
           if (!toA || !toB || !eligible(better, *a.instance) || !eligible(worse, *b.instance))
             continue;
+          if (level(toA->first) > level(a.source) || level(toB->first) > level(b.source)) continue;
 
           auto savedA = a, savedB = b;
           auto place = [](Assignment& slot, const Task& task,

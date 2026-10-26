@@ -2607,6 +2607,44 @@ def test_plan_is_stable(task):
         check("week {} twice: the same".format(" ".join(args)), second, first)
 
 
+OWNERS = """
+[settings]
+fallback = soon arch research rest
+
+[categories]
+arch      -  project:arch
+research  -  project:research
+free      -  project:free
+soon      -  due.before:now+7d
+
+[doshanbe]
+14:00-16:00  mon-arch      study  arch
+16:00-18:00  mon-research  study  research
+
+[seshanbe]
+14:00-16:00  tue-free  study  free
+
+[chaharshanbe]
+14:00-16:00  wed-free  study  free
+"""
+
+
+def test_repair_keeps_owners(task):
+    """The reported case: the repair never gives a slot of its own category's
+    task to a task it reaches only through the fallback chain.  It fixes
+    the order, not who owns a slot."""
+    write_template(task, OWNERS)
+    task.out("add", "Lecture", "project:arch")
+    task.out("add", "Paper", "project:research")
+    task.out("add", "HW2", "project:os", "due:1405-07-29T23:59", "estimate:4h")
+    found = slots(task.out(EARLY, "schedule", "week"))
+    check("Own categories keep their slots",
+          [found[s][1:] for s in ("mon-arch", "mon-research")],
+          [("Lecture", "arch"), ("Paper", "research")])
+    check("The urgent task takes the free slots, through soon",
+          [found[s][1] for s in ("tue-free", "wed-free")], ["HW2", "HW2"])
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -2635,5 +2673,5 @@ if __name__ == "__main__":
                         test_now, test_exact_estimates, test_floors_kept_by_default,
                         test_break_floors, test_break_floors_two_tasks, test_cannot_fit_even_forced,
                         test_borrow_force, test_lecture_order, test_series_in_id_order,
-                        test_depends_chain, test_repair_keeps_pins, test_plan_is_stable,
+                        test_depends_chain, test_repair_keeps_pins, test_plan_is_stable, test_repair_keeps_owners,
                         test_help], fresh=True))
