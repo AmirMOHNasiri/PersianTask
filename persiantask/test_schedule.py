@@ -2100,6 +2100,49 @@ def test_pace_is_even(task):
           ["DB", "nothing to do", "DB", "DB", "DB", "DB", "nothing to do", "nothing to do"])
 
 
+def test_virtual_tags(task):
+    """Virtual tags work in category filters, as of the week's time; and
+    check warns of a virtual tag written in lower case, which is an
+    ordinary tag that no task has."""
+    write_template(task, """
+[categories]
+od     -  +OVERDUE
+act    -  +ACTIVE
+today  -  +DUETODAY
+ready  -  +READY
+all    -  +PENDING
+
+[shanbe]
+14:00-15:00  a  study  od
+15:00-16:00  b  study  act
+16:00-17:00  c  study  today
+17:00-18:00  d  study  ready
+18:00-19:00  e  study  all
+""")
+    task.out("add", "Overdue", "due:2026-10-10")
+    task.out("add", "Active")
+    task.out("2", "start")
+    task.out("add", "Today", "due:2026-10-17T20:00")
+    task.out("add", "Later", "scheduled:2026-12-01")   # Not ready.
+    task.out("add", "Plain")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("Each virtual tag takes its task (one slot a day each)",
+          [found[s][1] for s in "abcde"], ["Overdue", "Active", "Today", "Plain", "Later"])
+    check_true("... from the slot's own category, not a fallback", found["e"][2] == "all",
+               found["e"])
+
+    write_template(task, "[categories]\nfree - +pending\n[shanbe]\n14:00-15:00 a study free\n")
+    code, out, err = task.run(NOW, "schedule", "check")
+    check_true("check warns of +pending, without failing", code == 0 and
+               "has the tag +pending, which no pending task has.  Virtual tags are in "
+               "capitals: did you mean +PENDING?" in out and
+               "Note: no pending task matches category 'free' now" in out, out + err)
+    write_template(task, "[categories]\nfree - +PENDING\n[shanbe]\n14:00-15:00 a study free\n")
+    out = task.out(NOW, "schedule", "check")
+    check_true("No warning for +PENDING", "Warning" not in out and "Note: no pending" not in out,
+               out)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -2123,4 +2166,5 @@ if __name__ == "__main__":
                         test_over_estimate_and_left, test_ask_estimate,
                         test_left_like_modify, test_everyday_partly_replaced,
                         test_project_left_after_earlier_weeks, test_work_conserving,
-                        test_compact_layout, test_pace_is_even, test_help], fresh=True))
+                        test_compact_layout, test_pace_is_even, test_virtual_tags,
+                        test_help], fresh=True))

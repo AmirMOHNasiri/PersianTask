@@ -8,6 +8,15 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
+## Unreleased
+
+### The weekly schedule
+
+- `task schedule check` warns when a category's filter uses a virtual tag in
+  lower case, such as `+pending`, which is an ordinary tag that no task has
+  (virtual tags are in capitals: `+PENDING`), and notes the categories that
+  slots use and no pending task matches.
+
 ## 3.5.0-persiantask.4 (2026-10-24)
 
 ### The weekly schedule

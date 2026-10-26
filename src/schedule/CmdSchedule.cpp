@@ -15,6 +15,7 @@
 #include <CmdSchedule.h>
 #include <Context.h>
 #include <FS.h>
+#include <Lexer.h>
 #include <ScheduleEffort.h>
 #include <ScheduleExample.h>
 #include <ScheduleHelp.h>
@@ -27,6 +28,7 @@
 #include <shared.h>
 
 #include <algorithm>
+#include <set>
 #include <sstream>
 
 using namespace schedule;
@@ -325,6 +327,28 @@ int CmdSchedule::init(const std::vector<std::string>& args, std::string& output)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// The tags of a filter that are a virtual tag written in lower case, such as
+// 'pending' for PENDING.
+static std::vector<std::string> lowerCaseVirtualTags(const std::string& filter) {
+  static const std::set<std::string> virtualTags{
+      "ACTIVE",  "ANNOTATED", "BLOCKED",  "BLOCKING", "CHILD",    "COMPLETED", "DELETED",
+      "DUE",     "DUETODAY",  "INSTANCE", "LATEST",   "MONTH",    "ORPHAN",    "OVERDUE",
+      "PARENT",  "PENDING",   "PRIORITY", "PROJECT",  "QUARTER",  "READY",     "SCHEDULED",
+      "TAGGED",  "TEMPLATE",  "TODAY",    "TOMORROW", "UDA",      "UNBLOCKED", "UNTIL",
+      "WAITING", "WEEK",      "YEAR",     "YESTERDAY"};
+  std::vector<std::string> found;
+  Lexer lexer(filter);
+  std::string token;
+  Lexer::Type type;
+  while (lexer.token(token, type))
+    if (type == Lexer::Type::tag && token.length() > 1) {
+      auto tag = token.substr(1);
+      if (tag != upperCase(tag) && virtualTags.count(upperCase(tag))) found.push_back(tag);
+    }
+  return found;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // The slots of each day, after [everyday] slots are added, for 'check
 // --expand': where each one comes from, and which [everyday] slots a day's
 // own slot replaces.
@@ -373,24 +397,42 @@ int CmdSchedule::check(const std::vector<std::string>& args, std::string& output
     return 1;
   }
 
-  // Filters are checked by running them.
+  // Filters are checked by running them.  A filter that matches no pending
+  // task is worth a word, especially with a tag that looks like a virtual
+  // tag in lower case: '+pending' is an ordinary tag, unlike '+PENDING'.
+  std::vector<std::string> empty;
   {
     Planner planner(tmpl, schedule::now());
-    auto tryFilter = [&](const std::string& filter, int line, const std::string& what) {
+    auto tryFilter = [&](const std::string& filter, int line, const std::string& what,
+                         bool used) {
       try {
-        planner.matching(filter);
+        if (!planner.matching(filter).empty() || !used) return;
       } catch (const std::string& error) {
         tmpl.problems.push_back(
             {line, format("The filter of {1} does not work: {2}", what, error)});
+        return;
       }
+      for (auto& tag : lowerCaseVirtualTags(filter))
+        tmpl.warnings.push_back(
+            {line, format("The filter of {1} has the tag +{2}, which no pending task has.  "
+                          "Virtual tags are in capitals: did you mean +{3}?",
+                          what, tag, upperCase(tag))});
+      empty.push_back(what);
     };
+    // The categories that slots use, their own or in a fallback chain.
+    std::set<std::string> used(tmpl.fallback.begin(), tmpl.fallback.end());
+    for (auto& slot : tmpl.slots) {
+      used.insert(slot.category);
+      used.insert(slot.fallback.begin(), slot.fallback.end());
+    }
     for (auto& category : tmpl.categories)
       if (!category.filter.empty())
-        tryFilter(category.filter, category.line, "category '" + category.name + "'");
+        tryFilter(category.filter, category.line, "category '" + category.name + "'",
+                  used.count(category.name) > 0);
     for (auto list : {&tmpl.slots, &tmpl.everyday})
       for (auto& slot : *list)
         if (!slot.filter.empty() && slot.everyday.empty())
-          tryFilter(slot.filter, slot.line, "slot '" + slot.id + "'");
+          tryFilter(slot.filter, slot.line, "slot '" + slot.id + "'", true);
   }
 
   auto udaProblem = estimateUdaProblem();
@@ -420,8 +462,14 @@ int CmdSchedule::check(const std::vector<std::string>& args, std::string& output
   out << format("{1}: no problems.  {2} slots on {3} days, {4} categories, {5} modes.\n",
                 Template::path(), tmpl.slots.size(), days.size(), tmpl.categories.size(),
                 tmpl.modes.size());
+  std::stable_sort(tmpl.warnings.begin(), tmpl.warnings.end(),
+                   [](auto& a, auto& b) { return a.line < b.line; });
   for (auto& warning : tmpl.warnings)
     out << format("{1}:{2}: Warning: {3}\n", Template::path(), warning.line, warning.message);
+  if (!empty.empty())
+    out << format("Note: no pending task matches {1} now, so {2} only from the fallback "
+                  "chain.\n",
+                  join(", ", empty), empty.size() == 1 ? "its slots get work" : "their slots get work");
 
   if (!args.empty()) out << expandedSlots(tmpl);
 

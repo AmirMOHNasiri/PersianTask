@@ -515,6 +515,7 @@ One category per line: a name, a floor, and a filter.
 - Options at the end of the line, after the filter:
   - `accounting:off` keeps the category out of [the hours](#which-category-hours-count-for) and the review.
   - `estimate:4h` is the [estimate](#estimates) of its tasks that have none, as in `os  4  project:os  estimate:3h`.
+- A **catch-all** category, for free slots that should take whatever is most urgent, uses a virtual tag: `free  -  +PENDING`. Virtual tags are in capitals (`+PENDING`, `+OVERDUE`, `+DUETODAY`, `+ACTIVE`, `+READY`, ...): `+pending` is an ordinary tag, which no task has, and `task schedule check` warns about it. It also notes any category that slots use and that no pending task matches, since those slots then get work only from their fallback chain.
 - The **filter** is the rest of the line, written exactly as on the Taskwarrior command line: `project:os`, `+term`, `project:os +homework`, `due.before:now+7d`, `description.has:"two words"`, and so on. In a filter, `now` means the time of the week being planned (see [Relative dates in filters](#relative-dates-in-filters)).
 
 ### Days: [shanbe] to [jome]
