@@ -2027,9 +2027,11 @@ def test_work_conserving(task):
             task.out("import", path)
             for week in ([], ["next"], ["1405-08-10"], ["1405-08-17"]):
                 out = task.out(NOW, "schedule", "week", *week)
-                check_true("No idle slot with work for it: template {}, seed {}, week {}".format(
-                    number, seed, " ".join(week) or "this"), "Test: slot" not in out,
-                    [line for line in out.splitlines() if "Test:" in line][:3])
+                check_true("No idle slot with work for it, nor a task after its due, before "
+                           "its blockers, or over its slots a day: template {}, seed {}, "
+                           "week {}".format(number, seed, " ".join(week) or "this"),
+                           "Test:" not in out,
+                           [line for line in out.splitlines() if "Test:" in line][:3])
 
 
 def test_compact_layout(task):
@@ -2189,8 +2191,10 @@ def test_secondary_categories(task):
     task.out("add", "First", "project:algo", "priority:H")
     task.out("add", "Second", "project:algo")
     found = slots(task.out(NOW, "schedule", "week"))
-    check("The later slot's own category gets the most urgent task first",
-          (found["b"][1:], found["a"][1:]), (("First", "algo"), ("Second", "algo (secondary)")))
+    # The passes give First to b's own category, Second to a's secondary one;
+    # then the order is repaired: the better task in the earlier slot.
+    check("Every slot gets a task, the better one first",
+          (found["a"][1:], found["b"][1:]), (("First", "algo (secondary)"), ("Second", "algo")))
 
     task.out("add", "Own", "project:ds")
     found = slots(task.out(NOW, "schedule", "week"))
@@ -2493,6 +2497,116 @@ def test_borrow_force(task):
                review)
 
 
+LECTURES = """
+[settings]
+fallback = soon arch rest
+
+[categories]
+arch  -  project:arch
+algo  -  project:algo
+ds    -  project:ds
+soon  -  due.before:now+7d
+
+[doshanbe]
+20:30-22:00  mon-arch  study  arch
+
+[panjshanbe]
+09:30-12:00  thu-algo  study  algo,ds
+
+[jome]
+08:00-10:00  fri-arch  study  arch
+"""
+
+
+def test_lecture_order(task):
+    """The reported case: lecture 1 (2h) gets mon-arch (1.5h) and fri-arch,
+    and thu-algo reaches arch through the fallback chain and gets lecture 2,
+    before lecture 1 is done.  The repair puts lecture 1 first."""
+    write_template(task, LECTURES)
+    task.out("add", "Lecture 1", "project:arch", "exact:2h")
+    task.out("add", "Lecture 2", "project:arch", "exact:2h")
+    found = slots(task.out(EARLY, "schedule", "week"))
+    check("Lecture 1, all of it, before lecture 2",
+          [found[s][0] for s in ("mon-arch", "thu-algo", "fri-arch")], ["1", "1", "2"])
+    check("Each through the way its slot reaches it",
+          [found[s][2].split()[-2:] for s in ("thu-algo", "fri-arch")],
+          [["arch", "(fallback)"], ["exact", "arch"]])
+
+
+def test_series_in_id_order(task):
+    """Lectures made in a loop, a few seconds apart, differ in urgency only
+    by their age; they are planned in the order of their ids."""
+    write_template(task, """
+[categories]
+arch  -  project:arch
+
+[shanbe]
+14:00-16:00  a  study  arch
+[yekshanbe]
+14:00-16:00  b  study  arch
+[doshanbe]
+14:00-16:00  c  study  arch
+[seshanbe]
+14:00-16:00  d  study  arch
+""")
+    # Older tasks are more urgent, by their age: made in reverse order, hours
+    # apart, the last would go first if age alone could set them apart.
+    for number in range(1, 5):
+        task.out("add", "Lecture {}".format(number), "project:arch", "exact:2h",
+                 "entry:2026-10-16T{:02d}:00:00".format(12 - number * 2))
+    found = slots(task.out(EARLY, "schedule", "week"))
+    check("In the order of their ids", [found[s][1] for s in "abcd"], ["Lecture"] * 4)
+    check("... 1, 2, 3, 4", [found[s][0] for s in "abcd"], ["1", "2", "3", "4"])
+
+
+def test_depends_chain(task):
+    """depends: orders a series: a task blocked by others takes a slot once
+    they are planned before it, in this week or an earlier one."""
+    write_template(task, "[categories]\narch - project:arch\n[doshanbe]\n"
+                         "14:00-16:00  mon-arch  study  arch\n")
+    task.out("add", "Lecture 1", "project:arch", "exact:2h")
+    task.out("add", "Lecture 2", "project:arch", "exact:2h", "depends:1")
+    task.out("add", "Lecture 3", "project:arch", "exact:2h", "depends:2", "priority:H")
+    for week, expected in [([], "1"), (["next"], "2"), (["1405-08-10"], "3")]:
+        found = slots(task.out(EARLY, "schedule", "week", *week))
+        check("{}: lecture {}".format(" ".join(week) or "This week", expected),
+              found["mon-arch"][0], expected)
+    rows = peek_rows(task.out(EARLY, "schedule", "peek", "mon-arch"))
+    check_true("peek says what a blocked task waits for",
+               any(r[2] == "Lecture" and "waits for task 2" in r[3] for r in rows), rows)
+
+    # A blocker with no estimate is never known to be done.
+    task.out("add", "Reading", "project:other")
+    task.out("add", "Essay", "project:arch", "exact:1h", "depends:4")
+    out = task.out(EARLY, "schedule", "week", "1405-08-17")
+    check_true("Its dependent stays unplanned", "Essay" not in out, out)
+
+
+def test_repair_keeps_pins(task):
+    write_template(task, "[categories]\nx - project:x\n[shanbe]\n14:00-15:00 a study x\n"
+                         "15:00-16:00 b study x\n")
+    task.out("add", "Hi", "project:x", "priority:H")
+    task.out("add", "Lo", "project:x")
+    found = slots(task.out(EARLY, "schedule", "week"))
+    check("The better one first", (found["a"][1], found["b"][1]), ("Hi", "Lo"))
+    task.out(EARLY, "schedule", "assign", "a", "2")
+    found = slots(task.out(EARLY, "schedule", "week"))
+    check("A pinned slot never moves", (found["a"][1:], found["b"][1]), (("Lo", "assigned"), "Hi"))
+
+
+def test_plan_is_stable(task):
+    """The plan is computed on every view: with nothing changed, it is the
+    same every time."""
+    write_template(task, LECTURES)
+    for number in range(1, 4):
+        task.out("add", "Lecture {}".format(number), "project:arch", "exact:2h")
+    task.out("add", "Algo", "project:algo", "estimate:3h", "due:1405-07-30")
+    for args in ([], ["next"]):
+        first = task.out(EARLY, "schedule", "week", *args)
+        second = task.out(EARLY, "schedule", "week", *args)
+        check("week {} twice: the same".format(" ".join(args)), second, first)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -2520,4 +2634,6 @@ if __name__ == "__main__":
                         test_secondary_categories, test_peek, test_next, test_open,
                         test_now, test_exact_estimates, test_floors_kept_by_default,
                         test_break_floors, test_break_floors_two_tasks, test_cannot_fit_even_forced,
-                        test_borrow_force, test_help], fresh=True))
+                        test_borrow_force, test_lecture_order, test_series_in_id_order,
+                        test_depends_chain, test_repair_keeps_pins, test_plan_is_stable,
+                        test_help], fresh=True))

@@ -17,9 +17,12 @@
 #include <ScheduleEffort.h>
 #include <SchedulePlanner.h>
 #include <format.h>
+#include <shared.h>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
+#include <limits>
 
 namespace schedule {
 
@@ -356,9 +359,14 @@ Planner::Planner(const Template& tmpl, const Datetime& reference,
     : _template(tmpl),
       _reference(reference),
       _horizon(horizon ? horizon : std::make_shared<Horizon>(tmpl, nullptr)) {
+  // Blocked tasks are candidates too, for slots after their blockers are
+  // planned (see blockersDone).
   for (auto& task : Context::getContext().tdb2.pending_tasks()) {
     _all.push_back(task);
-    if (task.getStatus() == Task::pending && !task.is_blocked) _pending.push_back(task);
+    if (task.getStatus() == Task::pending) {
+      _pending.push_back(task);
+      if (task.is_blocked) _blocked.insert(task.get("uuid"));
+    }
   }
 }
 
@@ -383,8 +391,11 @@ std::vector<Task> Planner::matching(const std::string& filter) {
     task.recalc_urgency = true;
     scored.emplace_back(task.urgency(), task);
   }
+  // Urgency to one decimal, so that tasks made a few seconds apart, whose
+  // urgency differs only by their age, keep the order of their ids.
   std::stable_sort(scored.begin(), scored.end(), [](auto& a, auto& b) {
-    return a.first != b.first ? a.first > b.first : a.second.id < b.second.id;
+    auto ua = std::lround(a.first * 10), ub = std::lround(b.first * 10);
+    return ua != ub ? ua > ub : a.second.id < b.second.id;
   });
 
   result.clear();
@@ -456,6 +467,7 @@ std::map<std::string, long> Planner::carried() const {
 // after it is due, unless it is overdue already.
 bool Planner::available(const Task& task, const Instance& instance) {
   if (!eligible(task, instance)) return false;
+  if (_blocked.count(task.get("uuid")) && !blockersDone(task, instance)) return false;
 
   // No task takes more than max.per-day of a day, unless it is critical.
   // A first slot is always allowed, even a longer one.
@@ -816,6 +828,7 @@ std::vector<Assignment> Planner::plan(const Week& week) {
   _left.clear();
   _consumed.clear();
   _paces.clear();
+  _ranks.clear();
   overloads.clear();
   notes.clear();
 
@@ -851,6 +864,7 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     }
     assignments.push_back(assignment);
   }
+  _current = &assignments;
 
   // 1. Pinned work comes first.
   for (auto& assignment : assignments) {
@@ -883,7 +897,7 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     if (pace(task)) paced.push_back(task);
   std::stable_sort(paced.begin(), paced.end(), [&](const Task& a, const Task& b) {
     auto pa = pace(a), pb = pace(b);
-    return pa->laxity != pb->laxity ? pa->laxity < pb->laxity : pa->urgency > pb->urgency;
+    return rank(a) < rank(b);
   });
   _paced = paced;
   auto behind = [&](const Task& task) {
@@ -1091,7 +1105,34 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     }
   }
 
+  // 7. The order: a better task never comes after a worse one where they
+  // could change places, and a task's parts come in time order.
+  repair(assignments, week);
+
 #ifdef PERSIANTASK_TESTING
+  // After the repair, no task is planned after it is due or before its
+  // blockers are, and none takes more slots a day than it may.
+  {
+    std::map<std::pair<std::string, time_t>, int> perDay;
+    for (auto& assignment : assignments) {
+      if (!assignment.task || !assignment.instance->pinnedTask.empty() ||
+          !assignment.instance->pinnedFilter.empty())
+        continue;
+      auto& task = *assignment.task;
+      auto& instance = *assignment.instance;
+      if (!eligible(task, instance))
+        notes.push_back(format("Test: task {1} is planned after it is due, in {2}.", task.id,
+                               instance.id));
+      if (_blocked.count(task.get("uuid")) && !blockersDone(task, instance))
+        notes.push_back(format("Test: task {1} is planned before its blockers, in {2}.", task.id,
+                               instance.id));
+      if (effort(task).remaining <= 0 &&
+          ++perDay[{task.get("uuid"), instance.day.toEpoch()}] > _template.unestimatedPerDay)
+        notes.push_back(format("Test: task {1} has too many slots on {2}.", task.id,
+                               instance.day.toString("Y-M-D")));
+    }
+  }
+
   // The plan is work-conserving: no slot that takes tasks stays empty while
   // a task it reaches, through its own category or its fallback chain, could
   // still take it.  Test builds check it, for the tests to see.
@@ -1152,6 +1193,8 @@ std::vector<Assignment> Planner::plan(const Week& week) {
                                  : ", or with priority:" + _template.breakFloors.front()));
   }
 
+  _assignments = assignments;
+  _current = &_assignments;
   return assignments;
 }
 
@@ -1159,6 +1202,13 @@ std::vector<Assignment> Planner::plan(const Week& week) {
 // Why the planner would not give the task this slot now, or "" if it would.
 std::string Planner::unavailable(const Task& task, const Instance& instance) {
   if (!eligible(task, instance)) return "due before this slot";
+  if (_blocked.count(task.get("uuid")) && !blockersDone(task, instance)) {
+    std::vector<std::string> ids;
+    for (auto& dependency : task.getDependencyTasks())
+      if (dependency.getStatus() == Task::pending || dependency.getStatus() == Task::waiting)
+        ids.push_back(std::to_string(dependency.id));
+    return "waits for task " + join(", ", ids);
+  }
   auto uuid = task.get("uuid");
   if (_template.maxPerDay > 0 && !critical(uuid)) {
     auto used = _usedTime[{uuid, instance.day.toEpoch()}];
@@ -1215,6 +1265,301 @@ std::vector<Candidate> Planner::candidates(const Instance& instance) {
   for (auto c : chain)
     for (auto& task : matching(c->filter)) add(task, Source::fallback, c->name);
   return result;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// The order in which the planner prefers tasks: least laxity first (tasks
+// that are not paced last), then the most urgent, to one decimal, so that
+// age alone does not set apart tasks made a few seconds apart, then the
+// lowest id.
+std::tuple<long, long, int> Planner::rank(const Task& task) {
+  auto uuid = task.get("uuid");
+  auto found = _ranks.find(uuid);
+  if (found != _ranks.end()) return found->second;
+
+  long laxity = std::numeric_limits<long>::max();
+  float urgency;
+  if (auto p = pace(task)) {
+    laxity = p->laxity;
+    urgency = p->urgency;
+  } else {
+    NowGuard now(_reference.toEpoch());
+    Task copy = task;
+    copy.recalc_urgency = true;
+    urgency = copy.urgency();
+  }
+  return _ranks[uuid] = std::make_tuple(laxity, -std::lround(urgency * 10), task.id);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// The part of the slot that counts for the task: after the reference time,
+// and before it is due, unless it is overdue.
+long Planner::portion(const Task& task, const Instance& instance) const {
+  auto start = instance.day.toEpoch() + instance.start * 60L;
+  auto end = instance.day.toEpoch() + instance.end * 60L;
+  if (task.has("due") && !overdue(task)) end = std::min<time_t>(end, task.get_date("due"));
+  auto from = std::max<time_t>(start, _reference.toEpoch());
+  return end > from ? end - from : 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// When the task's remaining work is covered by the plan so far: 0 if by the
+// weeks before, the end of the slot that covers it, or -1 if it is not, or
+// cannot be known, for a task with no estimate.
+time_t Planner::finishes(const std::string& uuid) {
+  auto task = std::find_if(_all.begin(), _all.end(),
+                           [&](const Task& t) { return t.get("uuid") == uuid; });
+  if (task == _all.end()) return 0;
+  auto& e = effort(*task);
+  if (e.remaining <= 0) return -1;
+  auto carried = _carried.find(uuid);
+  long need = e.remaining - (carried == _carried.end() ? 0 : carried->second);
+  if (need <= 0) return 0;
+  if (!_current) return -1;
+  for (auto& assignment : *_current)
+    if (assignment.task && assignment.task->get("uuid") == uuid) {
+      need -= portion(*assignment.task, *assignment.instance);
+      if (need <= 0) return assignment.instance->day.toEpoch() + assignment.instance->end * 60L;
+    }
+  return -1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// A blocked task may take a slot once every pending task it depends on is
+// fully planned before the slot starts.
+bool Planner::blockersDone(const Task& task, const Instance& instance) {
+  auto start = instance.day.toEpoch() + instance.start * 60L;
+  for (auto& uuid : task.getDependencyUUIDs()) {
+    auto blocker = std::find_if(_all.begin(), _all.end(),
+                                [&](const Task& t) { return t.get("uuid") == uuid; });
+    if (blocker == _all.end()) continue;  // Done, or deleted.
+    auto when = finishes(uuid);
+    if (when < 0 || when > start) return false;
+  }
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// How the slot reaches the task, if it does: its own category, a secondary
+// one, or a step of its fallback chain.
+std::optional<std::pair<Source, std::string>> Planner::reach(const Task& task,
+                                                             const Instance& instance) {
+  auto uuid = task.get("uuid");
+  auto category = instance.modeCategory.empty() ? instance.slot->category : instance.modeCategory;
+  if (!instance.skipped && contains(homeFilter(instance), uuid))
+    return std::make_pair(Source::slot, category);
+  for (auto& name : instance.slot->secondary)
+    if (auto c = _template.category(name))
+      if (contains(c->filter, uuid)) return std::make_pair(Source::secondary, name);
+  for (auto& step : _template.fallbackFor(*instance.slot)) {
+    if (step == "rest") break;
+    if (auto c = _template.category(step))
+      if (contains(c->filter, uuid)) return std::make_pair(Source::fallback, step);
+  }
+  return std::nullopt;
+}
+
+namespace {
+
+// Work the planner chose, which the repair may move: not pinned, borrowed,
+// nor taken below a floor.
+bool movable(const Assignment& assignment) {
+  if (!assignment.task || assignment.instance->event ||
+      !assignment.instance->pinnedTask.empty() || !assignment.instance->pinnedFilter.empty())
+    return false;
+  switch (assignment.source) {
+    case Source::slot:
+    case Source::secondary:
+    case Source::fallback:
+      return true;
+    case Source::critical:
+      return !assignment.floorBroken;
+    default:
+      return false;
+  }
+}
+
+}  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+// Recounts what each task uses, in time order, so that a task's parts come
+// in time order.  With release, a movable slot of a task whose estimate is
+// already covered by its earlier slots is freed and filled again.  Returns
+// whether any was.
+bool Planner::rebuild(std::vector<Assignment>& assignments, bool release) {
+  _used.clear();
+  _usedTime.clear();
+  _left.clear();
+  _consumed.clear();
+
+  std::vector<Assignment*> freed;
+  for (auto& assignment : assignments) {
+    if (!assignment.task) continue;
+    auto& task = *assignment.task;
+    if (release && movable(assignment) && effort(task).remaining > 0 && left(task) <= 0) {
+      assignment.task.reset();
+      assignment.source = Source::none;
+      assignment.via.clear();
+      assignment.mode.clear();
+      freed.push_back(&assignment);
+      continue;
+    }
+    use(task, *assignment.instance);
+  }
+  for (auto assignment : freed) refill(*assignment);
+  return !freed.empty();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Fills an empty slot as the passes would: its own category, its secondary
+// ones, then its fallback chain.
+bool Planner::refill(Assignment& assignment) {
+  auto& instance = *assignment.instance;
+  auto own = homeFilter(instance);
+  if (!instance.skipped && !own.empty()) {
+    assignment.task = pick(own, instance);
+    if (assignment.task) {
+      assignment.source = Source::slot;
+      assignment.via = instance.modeCategory.empty() ? instance.slot->category : instance.modeCategory;
+      assignment.mode = instance.mode;
+      return true;
+    }
+  }
+  for (auto& name : instance.slot->secondary)
+    if (auto c = _template.category(name)) {
+      assignment.task = pick(c->filter, instance);
+      if (assignment.task) {
+        assignment.source = Source::secondary;
+        assignment.via = name;
+        return true;
+      }
+    }
+  for (auto& step : _template.fallbackFor(*instance.slot)) {
+    if (step == "rest") {
+      assignment.source = Source::rest;
+      return false;
+    }
+    if (auto c = _template.category(step)) {
+      assignment.task = pick(c->filter, instance);
+      if (assignment.task) {
+        assignment.source = Source::fallback;
+        assignment.via = step;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// The ordering repair.  Each pass is right on its own, but together they can
+// leave a better task after a worse one, or a task's second part before
+// another task's first.  So, wherever a better-ranked task sits in a later
+// slot than a worse-ranked one, they change places, if every rule still
+// holds: each slot reaches its new task (own, secondary or fallback); each
+// task is due after its new slot; no task's useful time this week (planned,
+// up to what it needs) goes down, so pace shares stay as they were; limits
+// per day hold; no category falls below its floor; no task comes before its
+// blockers; and a critical task never moves later.  Pinned, assigned,
+// borrowed and forced slots never move.  Each change removes an inversion,
+// so it ends; and it only depends on the plan, so it gives the same result
+// every time.
+void Planner::repair(std::vector<Assignment>& assignments, const Week& week) {
+  struct Stats {
+    std::map<std::string, long> useful;
+    std::map<std::pair<std::string, time_t>, std::pair<int, long>> days;  // Slots, seconds.
+    std::map<std::string, int> minutes;                                   // By category.
+    int blockedEarly{0};
+  };
+  auto stats = [&]() {
+    Stats s;
+    std::map<std::string, long> need;
+    for (auto& assignment : assignments) {
+      if (!assignment.task) continue;
+      auto& task = *assignment.task;
+      auto uuid = task.get("uuid");
+      auto& day = s.days[{uuid, assignment.instance->day.toEpoch()}];
+      ++day.first;
+      day.second += assignment.instance->minutes() * 60L;
+      if (effort(task).remaining > 0) {
+        if (!need.count(uuid)) need[uuid] = effort(task).remaining - plannedBefore(task);
+        long got = std::min(portion(task, *assignment.instance), std::max(0L, need[uuid]));
+        need[uuid] -= got;
+        s.useful[uuid] += got;
+      }
+      if (_blocked.count(uuid) && !blockersDone(task, *assignment.instance)) ++s.blockedEarly;
+    }
+    s.minutes = minutesByCategory(assignments);
+    return s;
+  };
+  auto dayOk = [&](const Task& task, const Stats& s, time_t day) {
+    auto found = s.days.find({task.get("uuid"), day});
+    if (found == s.days.end()) return true;
+    auto [count, seconds] = found->second;
+    if (effort(task).remaining <= 0 && count > _template.unestimatedPerDay) return false;
+    return _template.maxPerDay <= 0 || critical(task.get("uuid")) || count <= 1 ||
+           seconds <= _template.maxPerDay;
+  };
+  auto start = [](const Assignment& a) {
+    return a.instance->day.toEpoch() + a.instance->start * 60L;
+  };
+
+  for (int round = 0; round < 3; ++round) {
+    bool changed = true;
+    while (changed) {
+      changed = false;
+      auto before = stats();
+      for (size_t i = 0; i < assignments.size(); ++i) {
+        if (!movable(assignments[i])) continue;
+        for (size_t j = i + 1; j < assignments.size(); ++j) {
+          auto& a = assignments[i];  // Earlier.
+          auto& b = assignments[j];  // Later.
+          if (!movable(b) || start(b) <= start(a)) continue;
+          auto worse = *a.task, better = *b.task;
+          if (worse.get("uuid") == better.get("uuid") || !(rank(better) < rank(worse))) continue;
+          if (critical(worse.get("uuid"))) continue;  // Never later.
+          auto toA = reach(better, *a.instance), toB = reach(worse, *b.instance);
+          if (!toA || !toB || !eligible(better, *a.instance) || !eligible(worse, *b.instance))
+            continue;
+
+          auto savedA = a, savedB = b;
+          auto place = [](Assignment& slot, const Task& task,
+                          const std::pair<Source, std::string>& how) {
+            slot.task = task;
+            slot.source = how.first;
+            slot.via = how.second;
+            slot.mode = how.first == Source::slot ? slot.instance->mode : "";
+            slot.floorBroken = false;
+          };
+          place(a, better, *toA);
+          place(b, worse, *toB);
+
+          auto after = stats();
+          bool ok = after.useful[worse.get("uuid")] >= before.useful[worse.get("uuid")] &&
+                    after.useful[better.get("uuid")] >= before.useful[better.get("uuid")] &&
+                    after.blockedEarly <= before.blockedEarly;
+          for (auto task : {&worse, &better})
+            for (auto day : {a.instance->day.toEpoch(), b.instance->day.toEpoch()})
+              ok = ok && dayOk(*task, after, day);
+          for (auto& category : _template.categories) {
+            auto floor = week.floorOf(_template, category.name);
+            if (floor >= 0 && before.minutes[category.name] >= floor * 60 &&
+                after.minutes[category.name] < floor * 60)
+              ok = false;
+          }
+
+          if (!ok) {
+            a = savedA;
+            b = savedB;
+            continue;
+          }
+          changed = true;
+          before = after;
+        }
+      }
+    }
+    if (!rebuild(assignments, true)) break;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

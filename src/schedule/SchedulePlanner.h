@@ -21,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <set>
 #include <string>
 #include <vector>
@@ -286,6 +287,19 @@ class Planner {
   std::vector<Overload> overloads;
 
  private:
+  // The ordering repair, after the passes (see plan()).
+  void repair(std::vector<Assignment>&, const Week&);
+  bool rebuild(std::vector<Assignment>&, bool release);
+  bool refill(Assignment&);
+  std::optional<std::pair<Source, std::string>> reach(const Task&, const Instance&);
+  std::tuple<long, long, int> rank(const Task&);
+
+  // Dependencies, resolved as planned: when the task's blockers are fully
+  // planned by the plan so far, or never (-1).
+  time_t finishes(const std::string& uuid);
+  long portion(const Task&, const Instance&) const;  // Time it counts in the slot.
+  bool blockersDone(const Task&, const Instance&);
+
   long left(const Task&);
   long defaultEstimate(const Task&);
   std::string unavailable(const Task&, const Instance&);
@@ -313,6 +327,10 @@ class Planner {
   std::map<std::pair<std::string, time_t>, long> _usedTime;  // Seconds per task per day.
   std::map<std::string, Pace> _paces;                        // By uuid.
   std::vector<Task> _paced;  // After plan(): paced tasks, least laxity first.
+  std::set<std::string> _blocked;  // Pending tasks blocked by others, by uuid.
+  std::map<std::string, std::tuple<long, long, int>> _ranks;
+  std::vector<Assignment> _assignments;           // After plan().
+  const std::vector<Assignment>* _current{nullptr};  // The plan so far.
   std::map<std::string, std::set<std::string>> _matchSets;   // Of matching(), by filter.
   std::shared_ptr<Horizon> _horizon;
 };

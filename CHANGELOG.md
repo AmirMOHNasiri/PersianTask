@@ -8,6 +8,21 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
+## Unreleased
+
+### The weekly schedule
+
+- The week keeps a sensible order: a better task no longer comes after a
+  worse one when they could change places, and a task split over several
+  slots is finished before the next one takes its place. For example, a
+  lecture's second half is no longer planned after the next lecture.
+- Tasks blocked by others (`depends:`) are planned once those are: after the
+  slots that finish the tasks they depend on, this week or a later one. A
+  series such as lectures can be kept in order with `depends:`.
+- Tasks made one after another, which differ only by their age, keep the
+  order of their ids.
+- The plan is the same every time you look, as long as nothing changed.
+
 ## 3.5.0-persiantask.6 (2026-10-26)
 
 Weekly floors protect categories such as research from losing every week;
