@@ -98,13 +98,16 @@ const std::vector<HelpEntry>& helpEntries() {
        {"task schedule assign wed-floating 12",
         "task schedule assign fri-buffer project:os +homework"}},
 
-      {"borrow", "<task> <hours> [next | prev | week:<date>]",
+      {"borrow", "<task> <hours> [force] [next | prev | week:<date>]",
        "Gives a task more time this week, from other slots",
        "Takes whole slots for the task, from the template's borrow setting, in that\n"
        "order, until the hours are covered.  Only slots later than now can lend, never\n"
        "fixed, rest, protected or assigned ones, and a category lends only down to its\n"
-       "floor.  Shows which slots were taken; 'task schedule undo' gives them back.",
-       {"task schedule borrow 12 2", "task schedule borrow 12 1.5h next"}},
+       "floor.  With 'force', if that is not enough, it goes below floors too (never\n"
+       "taking a critical task's slot), and says which floors it broke and by how much.\n"
+       "Shows which slots were taken; 'task schedule undo' gives them back.",
+       {"task schedule borrow 12 2", "task schedule borrow 12 3 force",
+        "task schedule borrow 12 1.5h next"}},
 
       {"now", "",
        "What to work on right now",
@@ -255,7 +258,8 @@ std::string helpTemplate() {
       "It has sections in square brackets, and # starts a comment.\n"
       "\n"
       "  [settings]          estimate.factor, unestimated.per-day, fallback, borrow,\n"
-      "                      pacing, max.per-day, overdue.critical-days\n"
+      "                      pacing, max.per-day, overdue.critical-days,\n"
+      "                      critical.break-floors\n"
       "  [categories]        One per line: <name> <floor> <filter>\n"
       "  [shanbe] ... [jome] The slots of each day, one per line:\n"
       "                      <start>-<end> <id> <kind> <category> [options]\n"

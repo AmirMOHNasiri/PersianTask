@@ -420,7 +420,27 @@ Each name is a slot, or a category, meaning that category's slots in time order.
 - it is not assigned to other work already,
 - and its category keeps its floor: a category lends only as long as its planned hours stay at or above its floor. Hours use each slot's length after this week's changes.
 
-Sleep is never borrowed from, since it is not a slot. `borrow` lists the slots it took, and says if it could not cover all the hours and which categories it kept at their floor. The borrowed slots show `borrowed` in the schedule. Borrowing is a change like any other: `task schedule undo` gives the time back, and `task schedule reset` frees a slot.
+Sleep is never borrowed from, since it is not a slot. `borrow` lists the slots it took, and says if it could not cover all the hours and which categories it kept at their floor.
+
+### Below floors
+
+Floors keep a category such as research, which never has urgent deadlines, from losing every week. For a deadline that truly matters, there are two ways past them:
+
+- **`task schedule borrow 12 3 force`** takes the slots that keep floors first, and then, only if that is not enough, slots below their categories' floors, in the same borrow order. It still never takes a fixed, rest, past, protected or assigned slot, nor a slot of another critical task, and it lists every floor it broke and by how much:
+
+  ```
+  Floor broken: research has 6h of its 8h floor this week (2h below).
+  ```
+
+- **`critical.break-floors = H`**, a template setting, lets a [critical](#pacing) task of that priority (or priorities: `H,M`) take the borrow-order slots it needs, floors or not, on its own, as `borrow force` would; the borrow setting is your list of what can be spared. If two such tasks compete, the one with less laxity goes first, and neither takes the other's slot. Other tasks keep to floors. It is off unless set; the example template sets it to `H`. A slot taken this way shows `research (floor broken)`, or `critical` when the floor still holds.
+
+The review lists the floors broken on purpose this week, and by which tasks, and warns when a category's floor was broken two weeks running.
+
+When a task cannot be finished before it is due in the slots it can use, a note under today's schedule and the week says what would help:
+
+- `Task 5 needs 3h more than its slots allow.  It would fit with 'task schedule borrow 5 3h force', or with priority:H.` when the borrow-order slots below floors would be enough (the priority part only with `critical.break-floors` set);
+- `Task 5 takes slots below their categories' floors to be finished in time.` when its priority lets it do so on its own;
+- `Task 5 cannot be finished in time even using all available slots: 3h short.  Consider asking for an extension or reducing scope.` when even those would not be enough. The borrowed slots show `borrowed` in the schedule. Borrowing is a change like any other: `task schedule undo` gives the time back, and `task schedule reset` frees a slot.
 
 ## The weekly review
 
@@ -539,6 +559,7 @@ borrow              = fri-buffer arch wed-floating uptodate research
 | `borrow` | Slots or categories that [lend time](#borrowing-time) to a task that needs more, in order. |
 | `pacing` | `on` (the default) or `off`: [pacing](#pacing) of tasks with estimates and due dates. |
 | `max.per-day` | The most time one task gets in a day, in hours, such as `3` or `2.5h`, except for critical tasks. No limit by default. |
+| `critical.break-floors` | Priorities, such as `H`, of critical tasks that may take borrow-order slots below floors ([below floors](#below-floors)). None by default. |
 | `overdue.critical-days` | For how many days after its due date an overdue task stays critical. The default is 7. |
 
 ### [categories]

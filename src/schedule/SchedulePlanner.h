@@ -79,6 +79,7 @@ struct Instance {
   std::string pinnedTask;  // UUID.
   std::string pinnedFilter;
   bool borrowed{false};
+  bool forced{false};  // Borrowed below its category's floor.
 
   int minutes() const { return end - start; }  // After this week's changes.
 };
@@ -129,6 +130,7 @@ enum class Source {
   event,     // A one-time event.
   slot,       // The slot's own filter.
   secondary,  // One of the slot's other categories, as in 'ds,algo'.
+  critical,   // A critical task in a borrow-order slot (critical.break-floors).
   fallback,   // A category in the fallback chain.
   past,      // A slot of the current week that has ended: nothing is planned in it.
   none       // Nothing matched.
@@ -161,6 +163,9 @@ struct Pace {
   long reachable{0};
   long laxity{0};
   long quota{0};    // This week's share of the remaining work.
+  // The time it could have with 'borrow force' too: the slots it can reach,
+  // and the borrow-order slots, floors or not.
+  long forced{0};
   float urgency{0};
 };
 
@@ -214,6 +219,7 @@ struct Assignment {
   Source source{Source::none};
   std::string via;   // The category, for slot and fallback.
   std::string mode;  // The mode that gave the slot to that category, if any.
+  bool floorBroken{false};  // It took the slot below the slot category's floor.
 };
 
 // Chooses a task for each slot of a week.  First each slot takes the most
@@ -287,6 +293,8 @@ class Planner {
   bool critical(const std::string& uuid) const;
   bool contains(const std::string& filter, const std::string& uuid);
   std::string homeFilter(const Instance&) const;
+  bool lends(const Instance&) const;  // Listed in the borrow setting, and not protected.
+  bool breaksFloors(const Task&) const;
 
   std::optional<Task> pick(const std::string& filter, const Instance&);
   void use(const Task&, const Instance&);

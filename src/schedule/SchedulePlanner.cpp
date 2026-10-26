@@ -186,6 +186,7 @@ Week::Week(const Template& tmpl, const Datetime& day, const State* state)
         instance->pinnedTask = o.task;
         instance->pinnedFilter = o.filter;
         instance->borrowed = o.borrowed;
+        instance->forced = o.forced;
       }
     }
 
@@ -546,7 +547,7 @@ std::string Planner::accountingCategory(const Assignment& assignment) {
   }
 
   if (assignment.source == Source::slot || assignment.source == Source::secondary ||
-      assignment.source == Source::fallback ||
+      assignment.source == Source::fallback || assignment.source == Source::critical ||
       assignment.source == Source::pinned || assignment.source == Source::borrowed)
     return categoryOf(*assignment.task);
 
@@ -600,6 +601,25 @@ bool Planner::contains(const std::string& filter, const std::string& uuid) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+bool Planner::lends(const Instance& instance) const {
+  auto& slot = *instance.slot;
+  if (instance.event || slot.isProtected) return false;
+  for (auto& name : _template.borrow)
+    if (name == slot.id || (!slot.everyday.empty() && name == slot.everyday) ||
+        name == slot.category)
+      return true;
+  return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Whether the task's priority lets it, critical, take slots below floors.
+bool Planner::breaksFloors(const Task& task) const {
+  auto priority = task.get("priority");
+  return !priority.empty() && std::find(_template.breakFloors.begin(), _template.breakFloors.end(),
+                                        priority) != _template.breakFloors.end();
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // The filter of the slot's own work: its own, or that of the category a mode
 // gave it to.
 std::string Planner::homeFilter(const Instance& instance) const {
@@ -624,7 +644,7 @@ void Planner::computePaces(const Week& week) {
   auto graceDays = static_cast<time_t>(_template.overdueCriticalDays) * 86400;
 
   struct Capacity {
-    long own{0}, reachable{0}, ownThisWeek{0};
+    long own{0}, reachable{0}, ownThisWeek{0}, forced{0};
   };
   std::vector<Capacity> capacity(pool.size());
   std::vector<long> remaining(pool.size(), 0);
@@ -710,6 +730,17 @@ void Planner::computePaces(const Week& week) {
           for (auto i : _horizon->matches(category->filter, weekReference)) add(i, false);
       }
 
+      // A borrow-order slot that a task does not reach could still be its
+      // with 'borrow force'.
+      // For the overloads, a task allowed below floors (critical.break-floors)
+      // can use them as well.
+      if (lends(instance))
+        for (size_t i = 0; i < pool.size(); ++i)
+          if (stamp[i] != slotNumber && remaining[i] > 0 && slotStart < due[i]) {
+            capacity[i].forced += std::min<time_t>(slotEnd, due[i]) - from;
+            if (breaksFloors(pool[i])) earliest = earliest ? std::min(earliest, due[i]) : due[i];
+          }
+
       if (earliest) usable.push_back({from, slotEnd, earliest});
     }
     start = current.end();
@@ -727,6 +758,7 @@ void Planner::computePaces(const Week& week) {
     pace.reachable = c.reachable;
     pace.laxity = c.reachable - remaining[i];
     pace.critical = pace.laxity <= 0;
+    pace.forced = c.reachable + c.forced;
 
     // This week's share: at least even progress, this week's part of the
     // time until it is due, so that slots it can reach only near the due
@@ -922,6 +954,45 @@ std::vector<Assignment> Planner::plan(const Week& week) {
         use(task, instance);
       }
     }
+
+    // 2b. Critical tasks with a priority in critical.break-floors, least
+    // laxity first, take the borrow-order slots they still need, floors or
+    // not: the borrow setting says what can be spared.  Never a protected,
+    // fixed, rest, past or assigned slot, nor one another critical task has.
+    if (!_template.breakFloors.empty()) {
+      std::vector<Assignment*> order;
+      auto addOrder = [&](Assignment& a) {
+        if (std::find(order.begin(), order.end(), &a) == order.end()) order.push_back(&a);
+      };
+      for (auto& name : _template.borrow)
+        for (auto& assignment : assignments) {
+          auto& slot = *assignment.instance->slot;
+          if (name == slot.id || (!slot.everyday.empty() && name == slot.everyday) ||
+              name == slot.category)
+            addOrder(assignment);
+        }
+
+      for (auto& task : paced) {
+        if (!pace(task)->critical || !breaksFloors(task)) continue;
+        for (auto assignment : order) {
+          auto& instance = *assignment->instance;
+          if (!takesTasks(instance) || assignment->task || !lends(instance)) continue;
+          if (!available(task, instance)) continue;
+
+          auto category = categoryOfSlot(instance);
+          auto floor = week.floorOf(_template, category);
+          assignment->floorBroken =
+              !category.empty() && floor >= 0 &&
+              ownMinutes[category] - given[category] - instance.minutes() < floor * 60;
+          given[category] += instance.minutes();
+
+          assignment->task = task;
+          assignment->source = Source::critical;
+          assignment->via = category;
+          use(task, instance);
+        }
+      }
+    }
   }
 
   // 3. Every slot takes a task from its own category, so that one slot's
@@ -1056,13 +1127,29 @@ std::vector<Assignment> Planner::plan(const Week& week) {
                              task.id, task.get("description")));
   }
 
-  // Tasks that cannot be finished in time, whatever the plan.
+  // Tasks that do not fit before they are due in the slots they can use:
+  // whether they would, with the borrow-order slots below floors too.
+  auto quarter = [](long seconds) { return formatHours((seconds + 899) / 900 * 900); };
   for (auto& task : paced) {
     auto p = pace(task);
-    if (!p->overdue && p->laxity < 0)
-      notes.push_back(format("Task {1} '{2}' cannot be finished before it is due: the slots "
-                             "it can use until then are {3} short.",
-                             task.id, task.get("description"), formatHours(-p->laxity)));
+    if (p->overdue || p->laxity >= 0) continue;
+    auto short_ = p->remaining - p->forced;
+    if (short_ > 0)
+      notes.push_back(format("Task {1} cannot be finished in time even using all available "
+                             "slots: {2} short.  Consider asking for an extension or reducing "
+                             "scope.",
+                             task.id, quarter(short_)));
+    else if (breaksFloors(task))
+      notes.push_back(format("Task {1} takes slots below their categories' floors to be "
+                             "finished in time.",
+                             task.id));
+    else
+      notes.push_back(format("Task {1} needs {2} more than its slots allow.  It would fit with "
+                             "'task schedule borrow {1} {3} force'{4}.",
+                             task.id, quarter(-p->laxity), quarter(-p->laxity),
+                             _template.breakFloors.empty()
+                                 ? std::string()
+                                 : ", or with priority:" + _template.breakFloors.front()));
   }
 
   return assignments;

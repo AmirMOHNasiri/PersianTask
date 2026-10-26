@@ -158,6 +158,7 @@ std::string State::toJSON() const {
       if (o.skipped) fields.push_back("\"skip\": true");
       if (!o.task.empty()) fields.push_back("\"task\": " + quote(o.task));
       if (o.borrowed) fields.push_back("\"borrowed\": true");
+      if (o.forced) fields.push_back("\"forced\": true");
       if (!o.filter.empty()) fields.push_back("\"filter\": " + quote(o.filter));
       if (!o.passed.empty()) {
         std::string list;
@@ -223,6 +224,7 @@ void State::fromJSON(const std::string& contents) {
         o.skipped = flag(slot.second, "skip");
         o.task = text(slot.second, "task");
         o.borrowed = flag(slot.second, "borrowed");
+        o.forced = flag(slot.second, "forced");
         o.filter = text(slot.second, "filter");
         auto passed = member(slot.second, "passed");
         if (passed && passed->type() == json::j_array)

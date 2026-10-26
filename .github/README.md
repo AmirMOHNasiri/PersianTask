@@ -165,7 +165,7 @@ Slots are named by their id in the template, such as `sat-ds`, or by the number 
 | `task schedule skip <slot>` | Skips a slot's own work, this week | `task schedule skip sat-research` |
 | `task schedule assign <slot> <task \| filter>` | Pins a task, or a filter, to a slot, this week | `task schedule assign wed-floating 12` |
 | `task schedule reset <slot \| week>` | Undoes this week's changes to a slot, or to the week | `task schedule reset sat-ds` |
-| `task schedule borrow <task> <hours>` | Gives a task more time this week, from the slots the template allows | `task schedule borrow 12 2` |
+| `task schedule borrow <task> <hours> [force]` | Gives a task more time this week, from the slots the template allows; `force` may go below floors | `task schedule borrow 12 2` |
 | `task schedule left <task> <hours>` | Corrects a wrong estimate: the hours the task still needs | `task schedule left 12 3` |
 | `task schedule review [last]` | Weekly review: planned and tracked hours, floors, the buffer, deadlines | `task schedule review last` |
 | `task schedule mode start <name> <values...>` | Starts a mode of the template, such as exam season | `task schedule mode start exam os 1405-09-20` |
@@ -206,6 +206,7 @@ Template settings, in `[settings]`:
 | `pacing` | `on` (default) or `off`: spread tasks with estimates and due dates over the time they have |
 | `max.per-day` | The most time one task gets in a day, such as `3h`, except when it is critical |
 | `overdue.critical-days` | For how many days an overdue task stays critical (7) |
+| `critical.break-floors` | Priorities, such as `H`, of critical tasks that may take borrow-order slots below floors; none unless set (the example sets `H`) |
 
 Slots: the kind is `fixed` (a class, never takes tasks), `study`, `floating`, `buffer` or `rest`. The category can be a list in order of priority, such as `ds,algo`, tried before the fallback chain. Slot options:
 

@@ -137,6 +137,9 @@ class Template {
   bool pacing{true};            // Plan tasks with due dates to keep pace.
   long maxPerDay{-1};           // Seconds of one task a day, or -1 for no limit.
   int overdueCriticalDays{7};   // Days an overdue task stays critical.
+  // Priorities of critical tasks that may take borrow-order slots below
+  // their categories' floors: critical.break-floors = H.  None by default.
+  std::vector<std::string> breakFloors;
   std::vector<std::string> fallback;
   std::vector<std::string> borrow;
 

@@ -16,6 +16,9 @@ unestimated.per-day = 1
 fallback            = soon term ds arch rest
 # Where extra time comes from, when a task needs more than its slot.
 borrow              = fri-buffer arch wed-floating uptodate research
+# A task of this priority that would miss its due date otherwise may take
+# the borrow slots above even below their categories' floors.
+critical.break-floors = H
 
 [categories]
 # name      floor   filter

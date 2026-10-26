@@ -30,6 +30,7 @@
 #include <util.h>
 
 #include <algorithm>
+#include <set>
 #include <sstream>
 
 using namespace schedule;
@@ -347,6 +348,10 @@ int CmdSchedule::assign(std::vector<std::string> args, std::string& output) {
 // lends only as long as its planned hours stay at or above its floor.
 int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
   Change change;
+  // 'force' may take slots below their categories' floors, if it must.
+  auto forceArg = std::find(args.begin(), args.end(), "force");
+  bool force = forceArg != args.end();
+  if (force) args.erase(forceArg);
   auto day = takeWeek(args);
   if (args.size() != 2) throw usageOf("borrow");
 
@@ -391,6 +396,7 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
   struct Candidate {
     const Instance* instance;
     std::string category;  // Of the work it would do.
+    bool critical;         // Its task is critical, so 'force' never takes it.
   };
   std::vector<Candidate> eligible;
   for (auto instance : candidates) {
@@ -410,11 +416,14 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
     auto assignment = std::find_if(assignments.begin(), assignments.end(),
                                    [&](auto& a) { return a.instance == instance; });
     std::string category;
+    bool critical = false;
     if (assignment != assignments.end() && assignment->task) {
       if (assignment->task->get("uuid") == uuid) continue;  // Already this task's.
       category = planner.accountingCategory(*assignment);
+      auto pace = planner.pace(*assignment->task);
+      critical = pace && pace->critical;
     }
-    eligible.push_back({instance, category});
+    eligible.push_back({instance, category, critical});
   }
 
   // A category lends only as long as it stays at or above its floor.
@@ -429,49 +438,76 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
   long taken = 0;
   std::vector<std::string> lent;
   std::vector<std::string> floors;
-  for (size_t i = 0; i < eligible.size() && taken < needed; ++i) {
-    auto& candidate = eligible[i];
-    auto instance = candidate.instance;
-    if (!keepsFloor(candidate)) {
-      if (std::find(floors.begin(), floors.end(), candidate.category) == floors.end())
-        floors.push_back(candidate.category);
-      continue;
-    }
+  std::set<const Instance*> used;
+  std::vector<std::string> broken;  // Categories taken below their floors.
 
-    // A slot that would overshoot the need by more than half its own length
-    // is passed over, if a later slot covers the need with less overshoot.
-    long length = instance->minutes() * 60L;
-    long remaining = needed - taken;
-    if (length - remaining > length / 2) {
-      bool better = false;
-      for (size_t j = i + 1; j < eligible.size() && !better; ++j) {
-        long other = eligible[j].instance->minutes() * 60L;
-        better = keepsFloor(eligible[j]) && other >= remaining &&
-                 other - remaining < length - remaining;
+  // First the slots that keep their category's floor; then, with 'force' and
+  // only if that was not enough, the others, but never a critical task's.
+  auto take = [&](bool belowFloors) {
+    auto takes = [&](const Candidate& c) {
+      return !used.count(c.instance) &&
+             (belowFloors ? !c.critical && !keepsFloor(c) : keepsFloor(c));
+    };
+    for (size_t i = 0; i < eligible.size() && taken < needed; ++i) {
+      auto& candidate = eligible[i];
+      auto instance = candidate.instance;
+      if (!takes(candidate)) {
+        if (!belowFloors && !used.count(instance) && !keepsFloor(candidate) &&
+            std::find(floors.begin(), floors.end(), candidate.category) == floors.end())
+          floors.push_back(candidate.category);
+        continue;
       }
-      if (better) continue;
+
+      // A slot that would overshoot the need by more than half its own
+      // length is passed over, if a later slot covers it with less overshoot.
+      long length = instance->minutes() * 60L;
+      long remaining = needed - taken;
+      if (length - remaining > length / 2) {
+        bool better = false;
+        for (size_t j = i + 1; j < eligible.size() && !better; ++j) {
+          long other = eligible[j].instance->minutes() * 60L;
+          better = takes(eligible[j]) && other >= remaining &&
+                   other - remaining < length - remaining;
+        }
+        if (better) continue;
+      }
+
+      if (belowFloors && std::find(broken.begin(), broken.end(), candidate.category) == broken.end())
+        broken.push_back(candidate.category);
+      if (!candidate.category.empty()) minutes[candidate.category] -= instance->minutes();
+
+      auto& o = change.state.at(key, instance->id);
+      o.task = uuid;
+      o.filter.clear();
+      o.skipped = false;
+      o.borrowed = true;
+      o.forced = belowFloors;
+      used.insert(instance);
+      taken += length;
+      lent.push_back(format("{1} ({2}{3}){4}", instance->id,
+                            describePlace(instance->day, instance->start, instance->end),
+                            candidate.category.empty() ? "" : ", from " + candidate.category,
+                            length > remaining
+                                ? format(": took {1} for {2} needed", formatHours(length),
+                                         formatHours(remaining))
+                                : ""));
     }
+  };
+  take(false);
+  if (force && taken < needed) take(true);
 
-    if (!candidate.category.empty()) minutes[candidate.category] -= instance->minutes();
-
-    auto& o = change.state.at(key, instance->id);
-    o.task = uuid;
-    o.filter.clear();
-    o.skipped = false;
-    o.borrowed = true;
-    taken += length;
-    lent.push_back(format("{1} ({2}{3}){4}", instance->id,
-                          describePlace(instance->day, instance->start, instance->end),
-                          candidate.category.empty() ? "" : ", from " + candidate.category,
-                          length > remaining ? format(": took {1} for {2} needed",
-                                                      formatHours(length), formatHours(remaining))
-                                             : ""));
-  }
+  // The floors kept, unless broken after all.
+  std::vector<std::string> kept;
+  for (auto& category : floors)
+    if (std::find(broken.begin(), broken.end(), category) == broken.end()) kept.push_back(category);
+  floors = kept;
 
   std::string floorNote;
   if (!floors.empty())
-    floorNote = format("  {1} kept at {2} floor.", join(", ", floors),
-                       floors.size() == 1 ? "its" : "their");
+    floorNote = format("  {1} kept at {2} floor.{3}", join(", ", floors),
+                       floors.size() == 1 ? "its" : "their",
+                       force ? "" : format("  'task schedule borrow {1} {2} force' may go below.",
+                                           first, args[1]));
 
   if (lent.empty())
     throw format("No slot can lend time to task {1} {2}.  The borrow setting lists {3}; only "
@@ -489,6 +525,12 @@ int CmdSchedule::borrow(std::vector<std::string> args, std::string& output) {
   out << format("Borrowed {1} for task {2}, '{3}':\n", formatHours(taken), first,
                 task.get("description"));
   for (auto& l : lent) out << "  " << l << '\n';
+  for (auto& category : broken) {
+    auto floor = static_cast<long>(week.floorOf(change.tmpl, category) * 3600);
+    auto left = std::max(0L, minutes[category] * 60L);
+    out << format("Floor broken: {1} has {2} of its {3} floor this week ({4} below).\n", category,
+                  formatHours(left), formatHours(floor), formatHours(floor - left));
+  }
   if (taken < needed)
     out << format("Only {1} of {2} could be borrowed.{3}\n", formatHours(taken),
                   formatHours(needed), floorNote);

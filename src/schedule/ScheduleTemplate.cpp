@@ -37,7 +37,7 @@ const std::vector<std::pair<std::string, Kind>> kinds{{"fixed", Kind::fixed},
 
 const std::vector<std::string> settingNames{"estimate.factor", "unestimated.per-day", "fallback",
                                             "borrow",          "pacing",              "max.per-day",
-                                            "overdue.critical-days"};
+                                            "overdue.critical-days", "critical.break-floors"};
 
 std::string lower(const std::string& input) {
   std::string output = input;
@@ -341,6 +341,12 @@ void Template::parseSetting(const std::string& line, int number) {
       problem(number, "overdue.critical-days must be a whole number of days, such as 7.");
     else
       overdueCriticalDays = static_cast<int>(number_value);
+  } else if (name == "critical.break-floors") {
+    // Priorities, such as H, or H,M; empty for none.
+    breakFloors.clear();
+    std::string list = value;
+    std::replace(list.begin(), list.end(), ',', ' ');
+    for (auto& priority : tokenize(list)) breakFloors.push_back(priority);
   } else if (name == "fallback") {
     fallback = tokenize(value);
     for (auto& step : fallback) step = lower(step);

@@ -55,6 +55,10 @@ struct WeekReview {
   bool bufferFull{false};
 
   std::map<std::string, double> floors;  // Hours, after modes; -1 for none.
+
+  // Floors broken on purpose: 'borrow force', or a critical task in
+  // critical.break-floors.  By category, the tasks that took its slots.
+  std::map<std::string, std::vector<std::string>> broken;
 };
 
 Datetime weeksBefore(const Datetime& day, int weeks) {
@@ -117,6 +121,21 @@ WeekReview reviewWeek(const Template& tmpl, const State& state, const Datetime& 
         [&](const Category& c) { return matches[c.name].count(entry.first) > 0; });
     review.actual[category] += entry.second;
     review.trackedTotal += entry.second;
+  }
+
+  // Floors broken on purpose, and by which tasks.
+  for (auto& assignment : assignments) {
+    auto& instance = *assignment.instance;
+    if (!assignment.task) continue;
+    bool forced = (assignment.source == Source::critical && assignment.floorBroken) ||
+                  (assignment.source == Source::borrowed && instance.forced);
+    if (!forced) continue;
+    auto category = instance.modeCategory.empty() ? instance.slot->category : instance.modeCategory;
+    auto what = format("task {1}, '{2}'{3}", assignment.task->id,
+                       assignment.task->get("description"),
+                       assignment.source == Source::borrowed ? " (borrow force)" : " (critical)");
+    auto& tasks = review.broken[category];
+    if (std::find(tasks.begin(), tasks.end(), what) == tasks.end()) tasks.push_back(what);
   }
 
   // Buffer slots, and what they were used for.
@@ -245,6 +264,17 @@ int CmdSchedule::review(std::vector<std::string> args, std::string& output) {
   if (!anyMissed)
     out << format("  No category was below its floor two weeks running (weeks {1} and {2}).\n",
                   earlier.start.week(), recent.start.week());
+
+  // Floors broken on purpose this week, and whether last week too.
+  auto lastWeek = reviewWeek(tmpl, state, weeksBefore(day, 1));
+  for (auto& entry : review.broken) {
+    auto& category = entry.first;
+    long floor = static_cast<long>(review.floors[category] * 3600);
+    out << format("  {1}'s floor was broken this week, to {2} of {3}, by {4}.\n", category,
+                  hours(review.planned[category]), hours(floor), join(", ", entry.second));
+    if (lastWeek.broken.count(category))
+      out << format("  Warning: {1}'s floor was broken two weeks running.\n", category);
+  }
   out << '\n';
 
   // The buffer.

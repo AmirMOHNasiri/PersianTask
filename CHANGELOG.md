@@ -8,6 +8,23 @@ are in [ChangeLog](ChangeLog).
 Numbering: within one upstream version the counter goes up (`3.5.0-persiantask.2`),
 and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
+## Unreleased
+
+### The weekly schedule
+
+- `task schedule borrow <task> <hours> force` may take slots below their
+  categories' floors when the slots that keep floors are not enough, and
+  says which floors it broke and by how much.
+- Opt-in: with `critical.break-floors = H` in the template, a priority:H task
+  that would otherwise miss its due date takes the borrow-order slots it
+  needs, below floors if it must. It is off unless set; the example template
+  sets it.
+- The review lists the floors broken on purpose this week, and by which
+  tasks, and warns when one was broken two weeks running.
+- A task that does not fit before it is due is told what would help:
+  `borrow ... force`, priority:H, or, when even every slot is not enough,
+  asking for an extension or reducing scope.
+
 ## 3.5.0-persiantask.5 (2026-10-26)
 
 ### New commands

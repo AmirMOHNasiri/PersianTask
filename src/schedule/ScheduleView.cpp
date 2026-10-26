@@ -189,7 +189,8 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
         row.from = row.shortFrom = "assigned";
         break;
       case Source::borrowed:
-        row.from = row.shortFrom = "borrowed";
+        row.from = instance.forced ? "borrowed, floor broken" : "borrowed";
+        row.shortFrom = instance.forced ? "borrowed!" : "borrowed";
         break;
       case Source::slot:
         row.from = row.shortFrom = assignment.via.empty() ? "filter" : assignment.via;
@@ -198,6 +199,13 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
           row.shortFrom += "~";
           modeMark = true;
         }
+        break;
+      case Source::critical:
+        if (assignment.floorBroken) {
+          row.from = assignment.via + " (floor broken)";
+          row.shortFrom = assignment.via + "!";
+        } else
+          row.from = row.shortFrom = "critical";
         break;
       case Source::secondary:
         row.from = assignment.via + " (secondary)";

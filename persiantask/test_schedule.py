@@ -1631,7 +1631,8 @@ def test_critical(task):
           [found[s][1] for s in ("sat-o", "sun-o", "mon-o")], ["C", "O", "O"])
     check_true("C is short", "short 2h" in found["sun-p"][2], found["sun-p"])
     check_true("A note says it cannot be finished",
-               "Task 1 'C' cannot be finished before it is due" in out and "2h short" in out, out)
+               "Task 1 cannot be finished in time even using all available slots: 2h short.  "
+               "Consider asking for an extension or reducing scope." in out, out)
 
     write_template(task, template.replace("os    11  project:os", "os    4   project:os"))
     found = slots(task.out(NOW, "schedule", "week"))
@@ -2370,6 +2371,128 @@ def test_exact_estimates(task):
                "the schedule needs exact estimates as durations" in out, out + err)
 
 
+FLOORS = """
+[settings]
+fallback = rest
+borrow   = res
+
+[categories]
+proj  -   project:proj
+res   12  project:res
+
+[everyday]
+09:00-11:00  p  study  proj
+14:00-16:00  r  study  res
+"""
+# Before Doshanbe 23:59, from Shanbe noon: proj has 4h (sun-p, mon-p), and
+# res 6h (sat-r, sun-r, mon-r), of a week of 14h with a floor of 12h.
+
+
+def floor_tasks(task, priority=None, estimate="10h"):
+    task.out("add", "Research", "project:res", "estimate:30h")
+    args = ["add", "Deadline", "project:proj", "due:1405-07-27T23:59", "estimate:" + estimate]
+    if priority:
+        args.append("priority:" + priority)
+    task.out(*args)
+
+
+def test_floors_kept_by_default(task):
+    """Without critical.break-floors, a critical task keeps to floors, and is
+    told how it would fit."""
+    write_template(task, FLOORS)
+    floor_tasks(task, "H")
+    out = task.out(NOW, "schedule", "week")
+    found = slots(out)
+    check("Research keeps its slots", [found[d + "-r"][1] for d in ("sat", "sun", "mon")],
+          ["Research"] * 3)
+    check_true("It would fit with force",
+               "Task 2 needs 6h more than its slots allow.  It would fit with 'task schedule "
+               "borrow 2 6h force'." in out, out)
+
+
+def test_break_floors(task):
+    """With critical.break-floors = H, a critical priority:H task takes the
+    borrow-order slots it needs, floors or not; a task of another priority
+    does not."""
+    write_template(task, FLOORS.replace("borrow   = res", "borrow   = res\ncritical.break-floors = H"))
+    floor_tasks(task, "H")
+    out = task.out(NOW, "schedule", "week")
+    found = slots(out)
+    check("It takes the research slots it needs, in borrow order",
+          [(found[d + "-r"][1], found[d + "-r"][2].split(") ", 1)[1])
+           for d in ("sat", "sun", "mon", "tue")],
+          [("Deadline", "short 6h critical"), ("Deadline", "short 6h res (floor broken)"),
+           ("Deadline", "short 6h res (floor broken)"), ("Research", "res")])
+    check_true("And says so", "Task 2 takes slots below their categories' floors to be finished "
+               "in time." in out, out)
+    review = task.out(NOW, "schedule", "review")
+    # The review plans the week from its start, when Shanbe's proj slot is
+    # still ahead: one res slot fewer.
+    check_true("The review names it", "res's floor was broken this week, to 10h of 12h, by task "
+               "2, 'Deadline' (critical)." in review, review)
+    check_true("Its overload check counts the slots it may take",
+               "Overloaded" not in review, review)
+
+    task.out("2", "modify", "priority:L")
+    out = task.out(NOW, "schedule", "week")
+    check("Another priority does not", [slots(out)[d + "-r"][1] for d in ("sat", "sun", "mon")],
+          ["Research"] * 3)
+    check_true("... and is told how it would fit", "It would fit with 'task schedule borrow 2 6h "
+               "force', or with priority:H." in out, out)
+
+
+def test_break_floors_two_tasks(task):
+    """Two critical priority:H tasks: the one with less laxity first, and
+    neither takes the other's slot."""
+    write_template(task, FLOORS.replace("borrow   = res", "borrow   = res\ncritical.break-floors = H"))
+    floor_tasks(task, "H")    # Laxity -6h.
+    task.out("add", "Second", "project:proj", "due:1405-07-28T23:59", "estimate:7h",
+             "priority:H")    # 6h of proj slots by Seshanbe: laxity -1h.
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("The tighter one first, then the other one, in what is left",
+          [found[s][1] for s in ("sat-r", "sun-r", "mon-r", "tue-p", "tue-r")],
+          ["Deadline", "Deadline", "Deadline", "Second", "Second"])
+
+
+def test_cannot_fit_even_forced(task):
+    write_template(task, FLOORS)
+    floor_tasks(task, estimate="14h")   # 4h + 6h of slots, even below floors.
+    out = task.out(NOW, "schedule", "week")
+    check_true("Not even with every slot", "Task 2 cannot be finished in time even using all "
+               "available slots: 4h short.  Consider asking for an extension or reducing scope."
+               in out, out)
+
+
+def test_borrow_force(task):
+    write_template(task, FLOORS)
+    floor_tasks(task)
+    out = task.out(NOW, "schedule", "borrow", "2", "6")
+    check_true("Without force, borrow keeps the floor, and says how to go below",
+               "Only 2h of 6h could be borrowed." in out and "res kept at its floor" in out and
+               "'task schedule borrow 2 6 force' may go below" in out, out)
+    task.out(NOW, "schedule", "undo")
+
+    out = task.out(NOW, "schedule", "borrow", "2", "6", "force")
+    check_true("With force, it goes below, and says by how much",
+               "Borrowed 6h for task 2" in out and
+               "Floor broken: res has 8h of its 12h floor this week (4h below)." in out, out)
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("The slots", [(found[d + "-r"][1], found[d + "-r"][2].split("on track ")[-1])
+                        for d in ("sat", "sun", "mon")],
+          [("Deadline", "borrowed"), ("Deadline", "borrowed, floor broken"),
+           ("Deadline", "borrowed, floor broken")])
+    review = task.out(NOW, "schedule", "review")
+    check_true("The review names the task", "res's floor was broken this week, to 8h of 12h, by "
+               "task 2, 'Deadline' (borrow force)." in review, review)
+
+    # Next week as well: two weeks running.
+    task.out("2", "modify", "due:1405-08-04T23:59")
+    task.out(NOW, "schedule", "borrow", "2", "6", "force", "next")
+    review = task.out(NOW, "schedule", "review", "next")
+    check_true("Two weeks running", "Warning: res's floor was broken two weeks running." in review,
+               review)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -2395,4 +2518,6 @@ if __name__ == "__main__":
                         test_project_left_after_earlier_weeks, test_work_conserving,
                         test_compact_layout, test_pace_is_even, test_virtual_tags,
                         test_secondary_categories, test_peek, test_next, test_open,
-                        test_now, test_exact_estimates, test_help], fresh=True))
+                        test_now, test_exact_estimates, test_floors_kept_by_default,
+                        test_break_floors, test_break_floors_two_tasks, test_cannot_fit_even_forced,
+                        test_borrow_force, test_help], fresh=True))
