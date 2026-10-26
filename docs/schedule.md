@@ -46,10 +46,11 @@ Slots get their tasks in passes over the week, each in time order:
 1. Work pinned with `assign` or `borrow`.
 2. [Critical](#pacing) tasks, which cannot be finished in time otherwise.
 3. Every slot takes a task matching its own category (or its own `filter:`): first its tasks [behind pace](#pacing), then the most urgent one. The earliest slot gets the most urgent task.
-4. Every slot still empty helps the tasks behind pace that its fallback chain reaches.
-5. Every slot still empty goes down its fallback chain: the slot's own `fallback:` if it has one, or else the `fallback` setting. Each step is a category, and the slot takes that category's most urgent task. The step `rest` leaves the slot free, and so does reaching the end of the chain.
+4. Every slot still empty tries its secondary categories, if it has any (`ds,algo`), in order, in the same way.
+5. Every slot still empty helps the tasks behind pace that its fallback chain reaches.
+6. Every slot still empty goes down its fallback chain: the slot's own `fallback:` if it has one, or else the `fallback` setting. Each step is a category, and the slot takes that category's most urgent task. The step `rest` leaves the slot free, and so does reaching the end of the chain.
 
-A slot's own category comes before its fallback chain, so that one slot's fallback never takes the task that another slot's own category was meant for. Passes 2 and 4 come from [pacing](#pacing), and without it (`pacing = off`), only passes 1, 3 (by urgency alone) and 5 remain, as in earlier versions.
+Every slot's own category comes before any slot's secondary categories, and those before the fallback chain, so that one slot never takes the task that another slot's own category was meant for. Passes 2 and 5 come from [pacing](#pacing), and without it (`pacing = off`), only passes 1, 3, 4 (by urgency alone) and 6 remain, as in earlier versions. For pacing, a slot whose secondary category matches a task is one the task can reach, like a fallback slot, not one of its own.
 
 **Due dates.** A task is never planned in a slot that starts after it is due, in either pass, nor lent such a slot by `borrow`. A task that is already overdue, at the time the week is planned, is the exception: it may take any slot, and its row says `overdue` in the `Pace` column. That column appears only when some row needs it; it also says `after due` for a task assigned by hand to a slot after its due time. For a task with an estimate, only the part of a slot before the due time counts towards the estimate.
 
@@ -537,7 +538,11 @@ A section for each day, named in Finglish, `[shanbe]`, `[yekshanbe]`, `[doshanbe
 1. **Time**: `HH:MM-HH:MM`. `wake` and `sleep` stand for the `schedule.wake` and `schedule.sleep` settings, as in `12:00-sleep`. Slots must fit between them, and must not overlap on the same day, except that a day's slot replaces an [`[everyday]`](#everyday) slot it overlaps.
 2. **Id**: a unique name, such as `sat-research`, used to refer to the slot. It uses letters, digits, `-` and `_`, and is not only digits.
 3. **Kind**: `fixed`, `study`, `floating`, `buffer` or `rest` (see [above](#how-a-slot-gets-its-task)).
-4. **Category**: a category name, or `-` for none. Study and floating slots need a category or a `filter:` option.
+4. **Category**: a category name, or `-` for none. Study and floating slots need a category or a `filter:` option. A slot can also list several, in order of priority, such as `ds,algo`: the first is its own category (the one its hours count for, and modes select it by), and the others are tried when it has nothing to do, before the fallback chain. Unlike the `fallback:` option, which replaces the whole chain for that slot, secondary categories come before the usual chain:
+
+   ```
+   07:00-09:00   thu-ds   study   ds,algo
+   ```
 5. **Options**, any of:
 
 | Option | Meaning |

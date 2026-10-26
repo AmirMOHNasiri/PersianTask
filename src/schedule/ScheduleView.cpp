@@ -158,7 +158,7 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
     bool empty{false};  // Found nothing to do.
   };
   std::vector<Row> rows;
-  bool fallbackMark = false, modeMark = false;
+  bool fallbackMark = false, secondaryMark = false, modeMark = false;
 
   const Instance* previous = nullptr;
   for (auto& assignment : assignments) {
@@ -197,6 +197,11 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
           row.shortFrom += "~";
           modeMark = true;
         }
+        break;
+      case Source::secondary:
+        row.from = assignment.via + " (secondary)";
+        row.shortFrom = assignment.via + "+";
+        secondaryMark = true;
         break;
       case Source::fallback:
         row.from = assignment.via + " (fallback)";
@@ -334,7 +339,8 @@ std::string renderTable(const std::vector<Assignment>& assignments, bool days, P
   }
 
   std::string legend;
-  if (fallbackMark) legend += "* from the fallback chain";
+  if (secondaryMark) legend += "+ a secondary category";
+  if (fallbackMark) legend += std::string(legend.empty() ? "" : ", ") + "* from the fallback chain";
   if (modeMark) legend += std::string(legend.empty() ? "" : ", ") + "~ given by a mode";
   if (!legend.empty()) output += legend + ".\n";
   if (!listed.empty()) output += '\n' + tasks.render();

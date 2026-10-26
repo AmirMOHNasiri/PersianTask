@@ -12,6 +12,10 @@ and on a new upstream version it starts again at 1 (`3.6.0-persiantask.1`).
 
 ### The weekly schedule
 
+- A slot can list several categories in order of priority, such as
+  `study ds,algo`: when its own category has nothing to do, it takes the next
+  one's task, before the fallback chain, and never a task another slot's own
+  category was meant for.
 - `task schedule check` warns when a category's filter uses a virtual tag in
   lower case, such as `+pending`, which is an ordinary tag that no task has
   (virtual tags are in capitals: `+PENDING`), and notes the categories that

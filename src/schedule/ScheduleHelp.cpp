@@ -228,6 +228,8 @@ std::string helpTemplate() {
       "  [categories]        One per line: <name> <floor> <filter>\n"
       "  [shanbe] ... [jome] The slots of each day, one per line:\n"
       "                      <start>-<end> <id> <kind> <category> [options]\n"
+      "                      The category can be a list, ds,algo: algo when ds has\n"
+      "                      nothing, before the fallback chain.\n"
       "  [everyday]          Slots of every day, such as lunch, written the same way.\n"
       "                      Each day gets a copy, named sat-lunch, sun-lunch, and so\n"
       "                      on.  A day's own slot that overlaps one replaces it on\n"

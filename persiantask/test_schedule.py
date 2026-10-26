@@ -2143,6 +2143,58 @@ all    -  +PENDING
                out)
 
 
+SECONDARY = """
+[settings]
+fallback = soon rest
+
+[categories]
+ds    -  project:ds
+algo  -  project:algo
+soon  -  due.before:now+7d
+
+[shanbe]
+14:00-15:00  a  study  ds,algo
+15:00-16:00  b  study  algo
+"""
+
+
+def test_secondary_categories(task):
+    """A slot's other categories come after every slot's own category, and
+    before the fallback chain."""
+    write_template(task, SECONDARY)
+    task.out("add", "First", "project:algo", "priority:H")
+    task.out("add", "Second", "project:algo")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("The later slot's own category gets the most urgent task first",
+          (found["b"][1:], found["a"][1:]), (("First", "algo"), ("Second", "algo (secondary)")))
+
+    task.out("add", "Own", "project:ds")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("The first category comes first", found["a"][1:], ("Own", "ds"))
+
+    for number in ("1", "2", "3"):
+        task.out(number, "done")
+    task.out("add", "Soon", "due:2026-10-19")
+    found = slots(task.out(NOW, "schedule", "week"))
+    check("Then the fallback chain", found["a"][1:], ("Soon", "soon (fallback)"))
+
+    out = task.out(NOW, "schedule", "check", "--expand")
+    check_true("check --expand lists them", re.search(r"\ba\s+study\s+ds,algo", out), out)
+    task.out("4", "done")
+    task.out("add", "Third", "project:algo")
+    task.out("add", "Fourth", "project:algo")
+    out = task.out(NOW, "rc.schedule.layout:compact", "schedule", "week")
+    check_true("Compact: marked +, with a legend", "algo+" in out and "+ a secondary category" in out,
+               out)
+
+    for line, message in [("14:00-15:00 a study ds,nope", "'nope' is not a category"),
+                          ("14:00-15:00 a fixed ds,algo", "cannot have more than one category"),
+                          ("14:00-15:00 a study ds,,algo", "is not a list of categories")]:
+        write_template(task, SECONDARY.replace("14:00-15:00  a  study  ds,algo", line))
+        code, out, err = task.run(NOW, "schedule", "check")
+        check_true("check: " + message, code != 0 and message in out, out + err)
+
+
 if __name__ == "__main__":
     sys.exit(run_tests([test_no_template, test_init, test_init_blank, test_check_errors,
                         test_week_boundaries, test_fallback, test_fallback_order,
@@ -2167,4 +2219,4 @@ if __name__ == "__main__":
                         test_left_like_modify, test_everyday_partly_replaced,
                         test_project_left_after_earlier_weeks, test_work_conserving,
                         test_compact_layout, test_pace_is_even, test_virtual_tags,
-                        test_help], fresh=True))
+                        test_secondary_categories, test_help], fresh=True))

@@ -43,7 +43,8 @@ struct Slot {
   int start{0};    // Minutes since midnight.
   int end{0};
   Kind kind{Kind::study};
-  std::string category;  // Empty for '-'.
+  std::string category;  // Empty for '-'.  The first, if several are given.
+  std::vector<std::string> secondary;  // The others, in order: 'ds,algo'.
   std::string filter;    // Overrides the category's filter.
   std::vector<std::string> fallback;
   bool hasFallback{false};  // Overrides the global fallback chain.

@@ -376,7 +376,14 @@ static std::string expandedSlots(const Template& tmpl) {
       auto line = format("  {1}-{2}  {3} {4} {5} {6}", formatTime(slot->start),
                          formatTime(slot->end), leftJustify(slot->id, 16),
                          leftJustify(kindName(slot->kind), 9),
-                         leftJustify(slot->category.empty() ? "-" : slot->category, 10), origin);
+                         leftJustify(slot->category.empty()
+                                         ? "-"
+                                         : join(",", std::vector<std::string>{slot->category}) +
+                                               (slot->secondary.empty()
+                                                    ? ""
+                                                    : "," + join(",", slot->secondary)),
+                                     10),
+                         origin);
       out << line.substr(0, line.find_last_not_of(' ') + 1) << '\n';
     }
     if (slots.empty()) out << "  (no slots)\n";

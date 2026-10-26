@@ -125,8 +125,9 @@ enum class Source {
   pinned,    // Assigned with 'task schedule assign'.
   borrowed,  // Lent to a task with 'task schedule borrow'.
   event,     // A one-time event.
-  slot,      // The slot's own filter.
-  fallback,  // A category in the fallback chain.
+  slot,       // The slot's own filter.
+  secondary,  // One of the slot's other categories, as in 'ds,algo'.
+  fallback,   // A category in the fallback chain.
   past,      // A slot of the current week that has ended: nothing is planned in it.
   none       // Nothing matched.
 };

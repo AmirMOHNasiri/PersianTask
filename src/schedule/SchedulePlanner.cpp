@@ -533,7 +533,8 @@ std::string Planner::accountingCategory(const Assignment& assignment) {
     if (category && category->accounting && category->floor >= 0) return category->name;
   }
 
-  if (assignment.source == Source::slot || assignment.source == Source::fallback ||
+  if (assignment.source == Source::slot || assignment.source == Source::secondary ||
+      assignment.source == Source::fallback ||
       assignment.source == Source::pinned || assignment.source == Source::borrowed)
     return categoryOf(*assignment.task);
 
@@ -688,6 +689,9 @@ void Planner::computePaces(const Week& week) {
 
       if (!instance.skipped)
         for (auto i : _horizon->matches(homeFilter(instance), weekReference)) add(i, true);
+      for (auto& name : slot.secondary)
+        if (auto category = _template.category(name))
+          for (auto i : _horizon->matches(category->filter, weekReference)) add(i, false);
       for (auto& step : _template.fallbackFor(slot)) {
         if (step == "rest") break;
         if (auto category = _template.category(step))
@@ -753,12 +757,15 @@ void Planner::computePaces(const Week& week) {
 //   2. critical tasks, least laxity first, in any slot they can reach, even
 //      one of another category, as long as it is not protected and that
 //      category keeps its floor;
-//   3. each slot's own category: first its tasks behind pace, least laxity
-//      first, then the most urgent;
-//   4. slots still empty: tasks behind pace that their fallback chain reaches,
+//   3. each slot's own (first) category: first its tasks behind pace, least
+//      laxity first, then the most urgent;
+//   4. slots still empty: their secondary categories ('ds,algo'), in order,
+//      likewise;
+//   5. slots still empty: tasks behind pace that their fallback chain reaches,
 //      least laxity first;
-//   5. slots still empty: their fallback chain, in order, most urgent first.
-// Passes 2 and 4, and the order of pass 3, are those of pacing = on.
+//   6. slots still empty: their fallback chain, in order, most urgent first.
+// Passes 2 and 5, and the behind-pace order of 3 and 4, are those of
+// pacing = on.
 std::vector<Assignment> Planner::plan(const Week& week) {
   _used.clear();
   _usedTime.clear();
@@ -839,6 +846,15 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     return p && planned(task) < p->quota;
   };
 
+  // The secondary category of the slot that matches the task, if any.
+  auto secondaryStep = [&](const Instance& instance, const std::string& uuid) -> std::string {
+    for (auto& name : instance.slot->secondary) {
+      auto category = _template.category(name);
+      if (category && contains(category->filter, uuid)) return name;
+    }
+    return "";
+  };
+
   // The fallback step of the slot that reaches the task, if any.
   auto fallbackStep = [&](const Instance& instance, const std::string& uuid) -> std::string {
     for (auto& step : _template.fallbackFor(*instance.slot)) {
@@ -866,7 +882,10 @@ std::vector<Assignment> Planner::plan(const Week& week) {
         if (!available(task, instance)) continue;
 
         bool own = !instance.skipped && contains(homeFilter(instance), uuid);
-        std::string via = own ? categoryOfSlot(instance) : fallbackStep(instance, uuid);
+        auto secondary = own ? std::string() : secondaryStep(instance, uuid);
+        std::string via = own                 ? categoryOfSlot(instance)
+                          : !secondary.empty() ? secondary
+                                               : fallbackStep(instance, uuid);
         if (via.empty()) continue;
 
         if (!own) {
@@ -882,7 +901,9 @@ std::vector<Assignment> Planner::plan(const Week& week) {
         }
 
         assignment.task = task;
-        assignment.source = own ? Source::slot : Source::fallback;
+        assignment.source = own                  ? Source::slot
+                            : !secondary.empty() ? Source::secondary
+                                                 : Source::fallback;
         assignment.via = via;
         if (own) assignment.mode = instance.mode;
         use(task, instance);
@@ -918,7 +939,34 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     }
   }
 
-  // 4. Slots still empty help the tasks behind pace that they can reach.
+  // 4. Slots still empty take a task from their other categories, in order,
+  // only now, so that they never take a task another slot's own category
+  // was meant for: in each, its tasks behind pace first, then the most urgent.
+  for (auto& assignment : assignments) {
+    auto& instance = *assignment.instance;
+    if (!takesTasks(instance) || instance.event || assignment.task) continue;
+
+    for (auto& name : instance.slot->secondary) {
+      auto category = _template.category(name);
+      if (!category) continue;
+      if (_template.pacing)
+        for (auto& task : paced)
+          if (behind(task) && contains(category->filter, task.get("uuid")) &&
+              available(task, instance)) {
+            assignment.task = task;
+            use(task, instance);
+            break;
+          }
+      if (!assignment.task) assignment.task = pick(category->filter, instance);
+      if (assignment.task) {
+        assignment.source = Source::secondary;
+        assignment.via = name;
+        break;
+      }
+    }
+  }
+
+  // 5. Slots still empty help the tasks behind pace that they can reach.
   if (_template.pacing)
     for (auto& assignment : assignments) {
       auto& instance = *assignment.instance;
@@ -936,7 +984,7 @@ std::vector<Assignment> Planner::plan(const Week& week) {
       }
     }
 
-  // 5. Then the slots still empty go down their fallback chains.
+  // 6. Then the slots still empty go down their fallback chains.
   for (auto& assignment : assignments) {
     auto& instance = *assignment.instance;
     if (!takesTasks(instance) || assignment.task) continue;
@@ -968,6 +1016,8 @@ std::vector<Assignment> Planner::plan(const Week& week) {
     if (!takesTasks(instance) || instance.event || assignment.task) continue;
     std::vector<std::string> filters;
     if (!instance.skipped) filters.push_back(homeFilter(instance));
+    for (auto& name : instance.slot->secondary)
+      if (auto category = _template.category(name)) filters.push_back(category->filter);
     for (auto& step : _template.fallbackFor(*instance.slot)) {
       if (step == "rest") break;
       if (auto category = _template.category(step)) filters.push_back(category->filter);

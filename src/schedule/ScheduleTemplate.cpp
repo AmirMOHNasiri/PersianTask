@@ -457,7 +457,20 @@ void Template::parseSlot(const std::string& line, int number, int weekday) {
   } else
     slot.kind = kind->second;
 
-  slot.category = tokens[3] == "-" ? "" : lower(tokens[3]);
+  // The category, or several in order of priority: 'ds,algo'.
+  if (tokens[3] != "-") {
+    std::istringstream names(lower(tokens[3]));
+    std::string name;
+    while (std::getline(names, name, ','))
+      if (slot.category.empty())
+        slot.category = name;
+      else
+        slot.secondary.push_back(name);
+    if (slot.category.empty() || std::find(slot.secondary.begin(), slot.secondary.end(), "") !=
+                                     slot.secondary.end())
+      problem(number, format("'{1}' is not a list of categories, such as ds or ds,algo.",
+                             tokens[3]));
+  }
 
   for (size_t i = 4; i < tokens.size(); ++i) {
     auto& option = tokens[i];
@@ -655,6 +668,14 @@ void Template::validate() {
     if (!slot.category.empty() && !isCategory(slot.category))
       problem(slot.line, format("Slot '{1}': '{2}' is not a category.{3}", slot.id,
                                 slot.category, suggest(slot.category, categoryNames)));
+    for (auto& name : slot.secondary)
+      if (!name.empty() && !isCategory(name))
+        problem(slot.line, format("Slot '{1}': '{2}' is not a category.{3}", slot.id, name,
+                                  suggest(name, categoryNames)));
+    if (!slot.secondary.empty() && (slot.kind == Kind::fixed || slot.kind == Kind::rest))
+      problem(slot.line, format("A {1} slot never takes tasks, so it cannot have more than one "
+                                "category.",
+                                kindName(slot.kind)));
     if (slot.hasFallback) checkChain(slot.fallback, slot.line, "the fallback option");
   }
 
