@@ -474,7 +474,29 @@ def test_help(task):
         readme = f.read()
     for name in listed:
         check_true("docs/schedule.md documents '{}'".format(name), "task schedule " + name in docs)
-        check_true("The README mentions '{}'".format(name), "task schedule " + name in readme)
+        # A row of the README's table of commands, with an example.
+        rows = [line for line in readme.splitlines()
+                if re.match(r"^\| `task schedule {}[ `]".format(name), line)]
+        check_true("The README's table has '{}', with an example".format(name),
+                   rows and all(re.search(r"\| `task schedule[^|]*` \|$", row) for row in rows),
+                   rows)
+
+    # Every setting, the template's and the taskrc's, in the README and the docs.
+    out = task.out("schedule", "help", "template")
+    match = re.search(r"\[settings\]\s+(.*?)\n\s+\[categories\]", out, re.S)
+    template_settings = re.findall(r"[a-z][a-z.-]+", match.group(1)) if match else []
+    check_true("help template lists the settings", len(template_settings) >= 7, template_settings)
+    taskrc_settings = [name for name in task.out("_config").split()
+                       if name.startswith(("schedule.", "color.schedule.")) or
+                       name in ("schedule", "dateformat.schedule")]
+    check_true("_config lists the schedule settings", len(taskrc_settings) >= 10, taskrc_settings)
+    for name in template_settings + taskrc_settings:
+        short = name.replace("color.schedule.", ".") if name.startswith("color.schedule.") else name
+        check_true("The README documents the setting " + name,
+                   "`" + name + "`" in readme or ("`" + short + "`" in readme), name)
+        check_true("docs/schedule.md documents the setting " + name, "`" + name + "`" in docs, name)
+    for option in ("filter:", "fallback:", "optional", "protected", "except:"):
+        check_true("The README documents the slot option " + option, "`" + option in readme, option)
 
 
 def test_swap(task):
